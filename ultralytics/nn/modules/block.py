@@ -43,17 +43,24 @@ __all__ = (
     "CBFuse",
     "CBLinear",
     "ContrastiveHead",
+    "EfficientNetV2Backbone",
+    "FeatureSelect",
     "GhostBottleneck",
     "HGBlock",
     "HGStem",
     "ImagePoolingAttn",
+    "MobileNetV3Backbone",
+    "MultiScaleBackbone",
     "Proto",
     "RepC3",
     "RepNCSPELAN4",
     "RepVGGDW",
+    "ResNet50Backbone",
     "ResNetLayer",
     "SCDown",
+    "TimmBackbone",
     "TorchVision",
+    "TorchvisionBackbone",
 )
 
 
@@ -2078,55 +2085,239 @@ class RealNVP(nn.Module):
         z, log_det = self.backward_p(x)
         # Closed-form log N(z; 0, I) in 2-D; fp32 keeps z**2 from overflowing under AMP.
         return -0.5 * (z.float() ** 2).sum(-1) - math.log(2 * math.pi) + log_det
-    
-class ResNet50Backbone(nn.Module):
-    def __init__(self, pretrained=True):
+
+
+class MultiScaleBackbone(nn.Module):
+    """Base class for third-party feature extractors used in place of the native YOLO backbone.
+
+    A MultiScaleBackbone is a single YAML layer that consumes the input image and returns a *list* of feature maps,
+    one per detection scale (P3/8, P4/16, P5/32 by default). `parse_model` recognizes any subclass of this class,
+    builds it once to read `out_channels`, and stores that list in its channel bookkeeping, so that a following
+    `FeatureSelect` layer can split the list back into individual tensors for the neck.
+
+    Subclasses must set `out_channels` in `__init__` and return a list of the same length from `forward`.
+
+    Attributes:
+        out_channels (list[int]): Channel count of each returned feature map, ordered fine-to-coarse (P3, P4, P5).
+        out_strides (list[int]): Reduction factor of each returned feature map relative to the input image.
+
+    Examples:
+        Define a custom extractor
+        >>> class MyBackbone(MultiScaleBackbone):
+        ...     def __init__(self, pretrained=True):
+        ...         super().__init__()
+        ...         self.m = build_my_network(pretrained)
+        ...         self.out_channels = [256, 512, 1024]
+        ...         self.out_strides = [8, 16, 32]
+        ...
+        ...     def forward(self, x):
+        ...         return self.m(x)  # [P3, P4, P5]
+    """
+
+    def __init__(self):
+        """Initialize the backbone with empty channel and stride metadata."""
+        super().__init__()
+        self.out_channels: list[int] = []
+        self.out_strides: list[int] = []
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Return one feature map per detection scale."""
+        raise NotImplementedError("MultiScaleBackbone subclasses must implement forward().")
+
+
+class TimmBackbone(MultiScaleBackbone):
+    """Feature extractor backed by any timm model that supports `features_only=True`.
+
+    This covers the MobileNet and EfficientNetV2 families targeted at offline, low-resource deployment, as well as
+    most other convolutional encoders in the timm zoo. Channel counts and strides are read from the model's own
+    `feature_info`, so no hard-coded numbers need updating when the encoder is swapped.
+
+    Args:
+        model (str): timm model name, i.e. 'mobilenetv3_large_100' or 'tf_efficientnetv2_s'.
+        pretrained (bool): Load ImageNet pretrained weights.
+        scales (int): Number of trailing feature maps to return, i.e. 3 for P3, P4 and P5.
+
+    Attributes:
+        m (torch.nn.Module): The timm feature extractor.
+        scales (int): Number of feature maps returned by `forward`.
+
+    Examples:
+        >>> backbone = TimmBackbone("mobilenetv3_large_100", pretrained=False)
+        >>> p3, p4, p5 = backbone(torch.zeros(1, 3, 640, 640))
+    """
+
+    def __init__(self, model: str = "mobilenetv3_large_100", pretrained: bool = True, scales: int = 3):
+        """Create the timm feature extractor and record its per-scale channels and strides."""
+        import timm  # scope for faster 'import ultralytics' and to keep timm an optional dependency
+
+        super().__init__()
+        self.m = timm.create_model(model, pretrained=pretrained, features_only=True)
+        self.scales = scales
+        self.out_channels = list(self.m.feature_info.channels()[-scales:])
+        self.out_strides = list(self.m.feature_info.reduction()[-scales:])
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Return the last `scales` feature maps of the encoder."""
+        return self.m(x)[-self.scales :]
+
+
+class TorchvisionBackbone(MultiScaleBackbone):
+    """Feature extractor backed by any torchvision classification model, with no extra dependency.
+
+    The model's `features` sequential is traced once at build time to discover which block ends each stride level,
+    and only those taps are kept. Architectures without a `.features` sequential (i.e. ResNet, RegNet) are rejected
+    with a clear error; use `TimmBackbone` or an explicit subclass for those. Blocks after the deepest tap are dropped, so the classifier head is never built
+    into the detector. Use this instead of `TimmBackbone` in locked-down environments where timm is unavailable.
+
+    Args:
+        model (str): torchvision model name, i.e. 'mobilenet_v3_large' or 'efficientnet_v2_s'.
+        weights (str | None): Weights enum name passed to `torchvision.models.get_model`, or None for random init.
+        scales (int): Number of stride levels to return, i.e. 3 for P3, P4 and P5.
+
+    Attributes:
+        m (torch.nn.ModuleList): Feature blocks up to and including the deepest tap.
+        taps (list[int]): Indices of the blocks whose outputs are returned.
+
+    Examples:
+        >>> backbone = TorchvisionBackbone("mobilenet_v3_large", weights=None)
+        >>> p3, p4, p5 = backbone(torch.zeros(1, 3, 640, 640))
+    """
+
+    def __init__(self, model: str = "mobilenet_v3_large", weights: str | None = "DEFAULT", scales: int = 3):
+        """Build the torchvision model, probe its stride levels, and keep only the blocks up to the deepest tap."""
+        import torchvision  # scope for faster 'import ultralytics'
+
+        super().__init__()
+        net = torchvision.models.get_model(model, weights=weights)
+        if not hasattr(net, "features"):
+            raise TypeError(
+                f"torchvision model '{model}' has no '.features' sequential and cannot be traced by "
+                f"TorchvisionBackbone. Use TimmBackbone instead, or write a MultiScaleBackbone subclass that "
+                f"slices this architecture explicitly (see ResNet50Backbone)."
+            )
+        blocks = list(net.features.children())
+
+        imgsz, strides, channels = 256, [], []
+        with torch.no_grad():
+            net.eval()  # use running BatchNorm statistics for the shape probe
+            y = torch.zeros(1, 3, imgsz, imgsz)
+            for b in blocks:
+                y = b(y)
+                strides.append(imgsz // y.shape[-1])
+                channels.append(y.shape[1])
+
+        levels = sorted(set(strides))[-scales:]  # i.e. [8, 16, 32]
+        self.taps = [max(i for i, s in enumerate(strides) if s == level) for level in levels]
+        self.m = nn.ModuleList(blocks[: self.taps[-1] + 1])  # drop everything after the deepest tap
+        self.out_channels = [channels[i] for i in self.taps]
+        self.out_strides = levels
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Run the truncated feature stack and collect the output of every stride level."""
+        y = []
+        for i, b in enumerate(self.m):
+            x = b(x)
+            if i in self.taps:
+                y.append(x)
+        return y
+
+
+class MobileNetV3Backbone(TimmBackbone):
+    """MobileNetV3 feature extractor, the lightest of the supported backbones for offline CPU inference.
+
+    Args:
+        pretrained (bool): Load ImageNet pretrained weights.
+        model (str): timm MobileNet variant, i.e. 'mobilenetv3_large_100', 'mobilenetv3_small_100' or a
+            'mobilenetv4_conv_*' model.
+        scales (int): Number of feature maps to return.
+
+    Examples:
+        >>> backbone = MobileNetV3Backbone(pretrained=False)
+        >>> backbone.out_channels
+        [40, 112, 960]
+    """
+
+    def __init__(self, pretrained: bool = True, model: str = "mobilenetv3_large_100", scales: int = 3):
+        """Initialize a MobileNet feature extractor from timm."""
+        super().__init__(model, pretrained, scales)
+
+
+class EfficientNetV2Backbone(TimmBackbone):
+    """EfficientNetV2 feature extractor, the higher-accuracy option for constrained deployment.
+
+    Args:
+        pretrained (bool): Load ImageNet pretrained weights.
+        model (str): timm EfficientNetV2 variant, i.e. 'tf_efficientnetv2_s' or 'tf_efficientnetv2_b0'.
+        scales (int): Number of feature maps to return.
+
+    Examples:
+        >>> backbone = EfficientNetV2Backbone(pretrained=False)
+        >>> backbone.out_channels
+        [64, 160, 256]
+    """
+
+    def __init__(self, pretrained: bool = True, model: str = "tf_efficientnetv2_s", scales: int = 3):
+        """Initialize an EfficientNetV2 feature extractor from timm."""
+        super().__init__(model, pretrained, scales)
+
+
+class ResNet50Backbone(MultiScaleBackbone):
+    """ResNet50 feature extractor kept as the heavyweight accuracy baseline for backbone comparisons.
+
+    Unlike the timm-based backbones this one slices torchvision's ResNet directly, so it needs no extra dependency.
+
+    Args:
+        pretrained (bool): Load ImageNet pretrained weights.
+
+    Examples:
+        >>> backbone = ResNet50Backbone(pretrained=False)
+        >>> backbone.out_channels
+        [512, 1024, 2048]
+    """
+
+    def __init__(self, pretrained: bool = True):
+        """Split a torchvision ResNet50 into stages and expose the P3, P4 and P5 outputs."""
         from torchvision.models import ResNet50_Weights, resnet50  # scope for faster 'import ultralytics'
 
         super().__init__()
-        weights = ResNet50_Weights.DEFAULT if pretrained else None
-        model = resnet50(weights=weights)
-
-        # We break the model into stages to extract intermediate features
+        model = resnet50(weights=ResNet50_Weights.DEFAULT if pretrained else None)
         self.stem = nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool)
-        self.layer1 = model.layer1 # P2 (not used)
-        self.layer2 = model.layer2 # P3 (512 channels)
-        self.layer3 = model.layer3 # P4 (1024 channels)
-        self.layer4 = model.layer4 # P5 (2048 channels)
-
-        # Inform YOLO about the 3 output scales
+        self.layer1 = model.layer1  # P2/4, not fed to the neck
+        self.layer2 = model.layer2  # P3/8
+        self.layer3 = model.layer3  # P4/16
+        self.layer4 = model.layer4  # P5/32
         self.out_channels = [512, 1024, 2048]
+        self.out_strides = [8, 16, 32]
 
-    def forward(self, x):
-        x = self.stem(x)
-        x = self.layer1(x)
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Return the P3, P4 and P5 feature maps."""
+        x = self.layer1(self.stem(x))
         p3 = self.layer2(x)
         p4 = self.layer3(p3)
         p5 = self.layer4(p4)
-        return [p3, p4, p5] # Returns multi-scale features
+        return [p3, p4, p5]
 
-class EfficientNetV2Backbone(nn.Module):
-    def __init__(self, pretrained=True):
-        import timm  # scope for faster 'import ultralytics'
-
-        super().__init__()
-        self.model = timm.create_model('tf_efficientnetv2_s', pretrained=pretrained, features_only=True)
-        # Inform YOLO about the output channels for the 3 scales
-        self.out_channels = [
-            self.model.feature_info[-3]['num_chs'],
-            self.model.feature_info[-2]['num_chs'],
-            self.model.feature_info[-1]['num_chs']
-        ]
-
-    def forward(self, x):
-        # Return [P3, P4, P5] feature maps
-        return self.model(x)[-3:]
 
 class FeatureSelect(nn.Module):
-    """Selects a specific feature map from a list (e.g., picking P5 from [P3, P4, P5])."""
-    def __init__(self, index):
+    """Pick one feature map out of the list returned by a `MultiScaleBackbone`.
+
+    Functionally identical to `Index`, but `parse_model` derives its output channel count from the backbone's
+    `out_channels` instead of requiring it to be spelled out in the YAML, so encoders can be swapped without
+    editing channel numbers by hand.
+
+    Args:
+        index (int): Position to select, i.e. 0 for P3, 1 for P4 and 2 for P5.
+
+    Examples:
+        >>> select_p5 = FeatureSelect(2)
+        >>> p5 = select_p5([p3, p4, p5])
+    """
+
+    def __init__(self, index: int = 0):
+        """Initialize the selector with the index to pick."""
         super().__init__()
         self.index = index
 
-    def forward(self, x):
+    def forward(self, x: list[torch.Tensor]) -> torch.Tensor:
+        """Return the selected feature map."""
         return x[self.index]

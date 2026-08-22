@@ -76,9 +76,13 @@ from ultralytics.nn.modules import (
     YOLOESegment,
     YOLOESegment26,
     v10Detect,
-    ResNet50Backbone,
-    EfficientNetV2Backbone,
+    EfficientNetV2Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
     FeatureSelect,
+    MobileNetV3Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
+    MultiScaleBackbone,
+    ResNet50Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
+    TimmBackbone,  # noqa: F401 - resolved by name from globals() in parse_model()
+    TorchvisionBackbone,  # noqa: F401 - resolved by name from globals() in parse_model()
 )
 from ultralytics.utils import (
     DEFAULT_CFG_DICT,
@@ -2048,6 +2052,7 @@ def parse_model(d, ch, verbose=True):
         }
     )
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
+        m_ = None  # pre-built module, set by branches that must instantiate early (i.e. MultiScaleBackbone)
         m = (
             getattr(torch.nn, m[3:])
             if m.startswith("nn.")
@@ -2145,29 +2150,16 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
-        elif m in (ResNet50Backbone, EfficientNetV2Backbone):
-            # 1. Initialize the backbone to get its out_channels list
-            m_ = m(*args)
-            c2 = m_.out_channels  # This is the list [P3, P4, P5]
-
-            # 2. DO NOT use ch.extend().
-            # Simply let c2 be the list; it will be appended to 'ch'
-            # as a single entry at the end of the loop.
-
+        elif isinstance(m, type) and issubclass(m, MultiScaleBackbone):
+            m_ = m(*args)  # build here so the encoder and its pretrained weights are only loaded once
+            c2 = m_.out_channels  # list of per-scale channels, i.e. [P3, P4, P5], kept as one entry in 'ch'
         elif m is FeatureSelect:
-            # args[0] is the index (0 for P3, 1 for P4, 2 for P5)
-            idx = args[0]
-
-            # ch[f] is now the list we saved in the backbone layer
-            # c2 now becomes a single integer (e.g., 2048) for the next layer
-            c2 = ch[f][idx]
-
-            # Initialize the selector module
-            m_ = m(*args)
+            c2 = ch[f][args[0]]  # index into the backbone's channel list, i.e. 2 -> P5 channels
         else:
             c2 = ch[f]
 
-        m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        if m_ is None:
+            m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         m_.np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type
