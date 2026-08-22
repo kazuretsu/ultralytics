@@ -1,4 +1,5 @@
 ---
+title: YOLO26 Hyperparameter Tuning - Ray Tune
 comments: true
 description: Optimize YOLO26 model performance with Ray Tune. Learn efficient hyperparameter tuning using advanced search strategies, parallelism, and early stopping.
 keywords: YOLO26, Ray Tune, hyperparameter tuning, model optimization, machine learning, deep learning, AI, Ultralytics, Weights & Biases
@@ -10,7 +11,7 @@ Hyperparameter tuning is vital in achieving peak model performance by discoverin
 
 ## Accelerate Tuning with Ultralytics YOLO26 and Ray Tune
 
-[Ultralytics YOLO26](https://www.ultralytics.com/) incorporates Ray Tune for hyperparameter tuning, streamlining the optimization of YOLO26 model hyperparameters. With Ray Tune, you can utilize advanced search strategies, parallelism, and early stopping to expedite the tuning process.
+[Ultralytics YOLO26](https://www.ultralytics.com) incorporates Ray Tune for hyperparameter tuning, streamlining the optimization of YOLO26 model hyperparameters. With Ray Tune, you can utilize advanced search strategies, parallelism, and early stopping to expedite the tuning process.
 
 ### Ray Tune
 
@@ -62,7 +63,7 @@ The `tune()` method in YOLO26 provides an easy-to-use interface for hyperparamet
 
 | Parameter       | Type                        | Description                                                                                                                                                                                                                                                                                                                                                                                        | Default Value |
 | --------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `data`          | `str`                       | The dataset configuration file (in YAML format) to run the tuner on. This file should specify the training and [validation data](https://www.ultralytics.com/glossary/validation-data) paths, as well as other dataset-specific settings.                                                                                                                                                          |               |
+| `data`          | `str`                       | The dataset YAML to run the tuner on, specifying the training and [validation data](https://www.ultralytics.com/glossary/validation-data) paths and other dataset-specific settings. Classification instead takes a dataset directory or a built-in dataset name (e.g., `imagenet10`).                                                                                                             |               |
 | `space`         | `dict, optional`            | A dictionary defining the hyperparameter search space for Ray Tune. Each key corresponds to a hyperparameter name, and the value specifies the range of values to explore during tuning. If not provided, YOLO26 uses a default search space with various hyperparameters.                                                                                                                         |               |
 | `grace_period`  | `int, optional`             | The grace period in [epochs](https://www.ultralytics.com/glossary/epoch) for the [ASHA scheduler](https://docs.ray.io/en/latest/tune/api/schedulers.html) in Ray Tune. The scheduler will not terminate any trial before this number of epochs, allowing the model to have some minimum training before making a decision on early stopping.                                                       | 10            |
 | `gpu_per_trial` | `int, optional`             | The number of GPUs to allocate per trial during tuning. This helps manage GPU usage, particularly in multi-GPU environments. If not provided, the tuner will use all available GPUs.                                                                                                                                                                                                               | `None`        |
@@ -101,8 +102,8 @@ The following table lists the default search space parameters for hyperparameter
 | `mosaic`          | `tune.uniform(0.0, 1.0)`   | Mosaic augmentation probability that combines four images into one training sample.                                               |
 | `mixup`           | `tune.uniform(0.0, 1.0)`   | Mixup augmentation probability that blends two images and their labels together.                                                  |
 | `cutmix`          | `tune.uniform(0.0, 1.0)`   | Cutmix augmentation probability that combines image regions while maintaining local features.                                     |
-| `copy_paste`      | `tune.uniform(0.0, 1.0)`   | Copy-paste augmentation probability that transfers objects between images to increase instance diversity.                         |
-| `close_mosaic`    | `tune.randint(0.0, 11)`    | Disables mosaic in the last N epochs to stabilize training before completion.                                                     |
+| `copy_paste`      | `tune.uniform(0.0, 1.0)`   | In `flip` mode the fraction of eligible objects copied into an image, in `mixup` mode also the probability of running it.         |
+| `close_mosaic`    | `tune.randint(0, 11)`      | Disables mosaic in the last N epochs to stabilize training before completion.                                                     |
 
 ## Custom Search Space Example
 

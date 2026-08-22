@@ -1,4 +1,5 @@
 ---
+title: YOLO-NAS Object Detection
 comments: true
 description: Discover YOLO-NAS by Deci AI - a state-of-the-art object detection model with quantization support. Explore features, pretrained models, and implementation examples.
 keywords: YOLO-NAS, Deci AI, object detection, deep learning, Neural Architecture Search, Ultralytics, Python API, YOLO model, SuperGradients, pretrained models, quantization, AutoNAC
@@ -97,11 +98,11 @@ We offer three variants of the YOLO-NAS models: Small (s), Medium (m), and Large
 
 Below is a detailed overview of each model, including links to their pretrained weights, the tasks they support, and their compatibility with different operating modes.
 
-| Model Type | Pretrained Weights                                                                            | Tasks Supported                        | Inference | Validation | Training | Export |
-| ---------- | --------------------------------------------------------------------------------------------- | -------------------------------------- | --------- | ---------- | -------- | ------ |
-| YOLO-NAS-s | [yolo_nas_s.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_s.pt) | [Object Detection](../tasks/detect.md) | ✅        | ✅         | ❌       | ✅     |
-| YOLO-NAS-m | [yolo_nas_m.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_m.pt) | [Object Detection](../tasks/detect.md) | ✅        | ✅         | ❌       | ✅     |
-| YOLO-NAS-l | [yolo_nas_l.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_l.pt) | [Object Detection](../tasks/detect.md) | ✅        | ✅         | ❌       | ✅     |
+| Model Type | Pretrained Weights                                                                            | Tasks Supported                        | Training | Validation | Inference | Export |
+| ---------- | --------------------------------------------------------------------------------------------- | -------------------------------------- | -------- | ---------- | --------- | ------ |
+| YOLO-NAS-s | [yolo_nas_s.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_s.pt) | [Object Detection](../tasks/detect.md) | ❌       | ✅         | ✅        | ✅     |
+| YOLO-NAS-m | [yolo_nas_m.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_m.pt) | [Object Detection](../tasks/detect.md) | ❌       | ✅         | ✅        | ✅     |
+| YOLO-NAS-l | [yolo_nas_l.pt](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo_nas_l.pt) | [Object Detection](../tasks/detect.md) | ❌       | ✅         | ✅        | ✅     |
 
 ## Citations and Acknowledgments
 

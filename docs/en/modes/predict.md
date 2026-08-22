@@ -38,14 +38,14 @@ Here's why you should consider YOLO26's predict mode for your various inference 
 - **Performance:** Engineered for real-time, high-speed processing without sacrificing [accuracy](https://www.ultralytics.com/glossary/accuracy).
 - **Ease of Use:** Intuitive Python and CLI interfaces for rapid deployment and testing.
 - **Highly Customizable:** Various settings and parameters to tune the model's inference behavior according to your specific requirements.
-- **Production Ready:** Deploy models as API endpoints on [Ultralytics Platform](https://platform.ultralytics.com) with auto-scaling and monitoring, or run inference locally.
+- **Production Ready:** Deploy models as [Ultralytics Platform inference endpoints](../platform/deploy/endpoints.md) with auto-scaling and monitoring, or run inference locally.
 
 ### Key Features of Predict Mode
 
 YOLO26's predict mode is designed to be robust and versatile, featuring:
 
 - **Multiple Data Source Compatibility:** Whether your data is in the form of individual images, a collection of images, video files, or real-time video streams, predict mode has you covered.
-- **Streaming Mode:** Use the streaming feature to generate a memory-efficient generator of `Results` objects. Enable this by setting `stream=True` in the predictor's call method.
+- **Streaming Mode:** Use the streaming feature to generate a memory-efficient generator of `Results` objects. Enable this by setting `stream=True` in the predictor's call method. Unlike the default behavior (`stream=False`), which returns a list containing all results, `stream=True` yields results one at a time, making it especially useful for long videos and live streams.
 - **Batch Processing:** Process multiple images or video frames in a single batch, further reducing total inference time.
 - **Integration Friendly:** Easily integrate with existing data pipelines and other software components, thanks to its flexible API.
 
@@ -368,7 +368,7 @@ Below are code examples for using each source type:
 
         Example `.streams` text file:
 
-        ```
+        ```text
         rtsp://example.com/media1.mp4
         rtsp://example.com/media2.mp4
         rtmp://example2.com/live
@@ -529,7 +529,7 @@ All Ultralytics `predict()` calls will return a list of `Results` objects:
 
 ### Results by Task
 
-Each prediction returns one `Results` object per image or frame. The common fields above are always available, while the
+Which fields below populate depends on your model's task — [compare detection, segmentation, semantic segmentation, depth estimation, classification, pose, and OBB](../tasks/index.md) if you haven't picked one yet. Each prediction returns one `Results` object per image or frame. The common fields above are always available, while the
 task-specific prediction data is stored in the fields below. Coordinate, confidence, and probability tensors are
 `torch.float32` unless half precision is used, then `torch.float16`. After `result.numpy()`, tensors become NumPy arrays with matching NumPy dtypes.
 Instance masks are `torch.uint8` binary tensors, while semantic masks use the smallest practical integer dtype for class
@@ -604,7 +604,7 @@ IDs: `torch.uint8`, `torch.int16`, or `torch.int32`, depending on class count.
 | `cuda()`      | `Results`              | Returns a copy of the Results object with all tensors moved to GPU memory.                               |
 | `to()`        | `Results`              | Returns a copy of the Results object with tensors moved to specified device and dtype.                   |
 | `new()`       | `Results`              | Creates a new Results object with the same image, path, names, and speed attributes.                     |
-| `plot()`      | `np.ndarray`           | Plots detection results on an input RGB image and returns the annotated image.                           |
+| `plot()`      | `np.ndarray`           | Plots detection results on an input BGR image and returns the annotated image.                           |
 | `show()`      | `None`                 | Displays the image with annotated inference results.                                                     |
 | `save()`      | `str`                  | Saves annotated inference results image to file and returns the filename.                                |
 | `verbose()`   | `str`                  | Returns a log string for each task, detailing detection and classification outcomes.                     |
@@ -755,7 +755,7 @@ For more details see the [`Keypoints` class documentation](../reference/engine/r
 
 ### Probs
 
-`Probs` object can be used index, get `top1` and `top5` indices and scores of classification.
+`Probs` object can be used to obtain `top1` and `top5` classification indices and scores.
 
 !!! example "Probs"
 
@@ -860,26 +860,25 @@ The `plot()` method in `Results` objects facilitates visualization of prediction
 
 The `plot()` method supports various arguments to customize the output:
 
-| Argument     | Type                   | Description                                                                | Default           |
-| ------------ | ---------------------- | -------------------------------------------------------------------------- | ----------------- |
-| `conf`       | `bool`                 | Include detection confidence scores.                                       | `True`            |
-| `line_width` | `float`                | Line width of bounding boxes. Scales with image size if `None`.            | `None`            |
-| `font_size`  | `float`                | Text font size. Scales with image size if `None`.                          | `None`            |
-| `font`       | `str`                  | Font name for text annotations.                                            | `'Arial.ttf'`     |
-| `pil`        | `bool`                 | Return image as a PIL Image object.                                        | `False`           |
-| `img`        | `np.ndarray`           | Alternative image for plotting. Uses the original image if `None`.         | `None`            |
-| `im_gpu`     | `torch.Tensor`         | GPU-accelerated image for faster mask plotting. Shape: (1, 3, 640, 640).   | `None`            |
-| `kpt_radius` | `int`                  | Radius for drawn keypoints.                                                | `5`               |
-| `kpt_line`   | `bool`                 | Connect keypoints with lines.                                              | `True`            |
-| `labels`     | `bool`                 | Include class labels in annotations.                                       | `True`            |
-| `boxes`      | `bool`                 | Overlay bounding boxes on the image.                                       | `True`            |
-| `masks`      | `bool`                 | Overlay masks on the image.                                                | `True`            |
-| `probs`      | `bool`                 | Include classification probabilities.                                      | `True`            |
-| `show`       | `bool`                 | Display the annotated image directly using the default image viewer.       | `False`           |
-| `save`       | `bool`                 | Save the annotated image to a file specified by `filename`.                | `False`           |
-| `filename`   | `str`                  | Path and name of the file to save the annotated image if `save` is `True`. | `None`            |
-| `color_mode` | `str`                  | Specify the color mode, e.g., 'instance' or 'class'.                       | `'class'`         |
-| `txt_color`  | `tuple[int, int, int]` | RGB text color for bounding box and image classification label.            | `(255, 255, 255)` |
+| Argument     | Type                         | Description                                                                | Default           |
+| ------------ | ---------------------------- | -------------------------------------------------------------------------- | ----------------- |
+| `conf`       | `bool`                       | Include detection confidence scores.                                       | `True`            |
+| `line_width` | `float`                      | Line width of bounding boxes. Scales with image size if `None`.            | `None`            |
+| `font_size`  | `float`                      | Text font size. Scales with image size if `None`.                          | `None`            |
+| `font`       | `str`                        | Font name for text annotations.                                            | `'Arial.ttf'`     |
+| `pil`        | `bool`                       | Return image as a PIL Image object.                                        | `False`           |
+| `img`        | `np.ndarray \| torch.Tensor` | Alternative image. Tensors must be contiguous HWC BGR uint8.               | `None`            |
+| `kpt_radius` | `int`                        | Radius for drawn keypoints.                                                | `5`               |
+| `kpt_line`   | `bool`                       | Connect keypoints with lines.                                              | `True`            |
+| `labels`     | `bool`                       | Include class labels in annotations.                                       | `True`            |
+| `boxes`      | `bool`                       | Overlay bounding boxes on the image.                                       | `True`            |
+| `masks`      | `bool`                       | Overlay masks on the image.                                                | `True`            |
+| `probs`      | `bool`                       | Include classification probabilities.                                      | `True`            |
+| `show`       | `bool`                       | Display the annotated image directly using the default image viewer.       | `False`           |
+| `save`       | `bool`                       | Save the annotated image to a file specified by `filename`.                | `False`           |
+| `filename`   | `str`                        | Path and name of the file to save the annotated image if `save` is `True`. | `None`            |
+| `color_mode` | `str`                        | Specify the color mode, e.g., 'instance' or 'class'.                       | `'class'`         |
+| `txt_color`  | `tuple[int, int, int]`       | BGR text color for bounding box and image classification label.            | `(255, 255, 255)` |
 
 ## Thread-Safe Inference
 
@@ -961,11 +960,15 @@ This script will run predictions on each frame of the video, visualize the resul
 [football player detect]: https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/football-players-detection.avif
 [human fall detect]: https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/person-fall-detection.avif
 
+## What's Next
+
+Ready to move past a pretrained model? [Confirm your task fits your problem](../tasks/index.md), format your own data with the [Datasets guide](../datasets/index.md), then [train on it](train.md).
+
 ## FAQ
 
 ### What is Ultralytics YOLO and its predict mode for real-time inference?
 
-Ultralytics YOLO is a state-of-the-art model for real-time [object detection](https://www.ultralytics.com/glossary/object-detection), [instance segmentation](../tasks/segment.md), [semantic segmentation](../tasks/semantic.md), and [classification](../tasks/classify.md). Its **predict mode** allows users to perform high-speed inference on various data sources such as images, videos, and live streams. Designed for performance and versatility, it also offers batch processing and streaming modes. For more details on its features, check out the [Ultralytics YOLO predict mode](#key-features-of-predict-mode).
+Ultralytics YOLO is a state-of-the-art model for real-time [object detection](https://www.ultralytics.com/glossary/object-detection), [instance segmentation](../tasks/segment.md), [semantic segmentation](../tasks/semantic.md), [depth estimation](../tasks/depth.md), and [classification](../tasks/classify.md). Its **predict mode** allows users to perform high-speed inference on various data sources such as images, videos, and live streams. Designed for performance and versatility, it also offers batch processing and streaming modes. For more details on its features, check out the [Ultralytics YOLO predict mode](#key-features-of-predict-mode).
 
 ### How can I run inference using Ultralytics YOLO on different data sources?
 
@@ -978,6 +981,20 @@ To optimize inference speed and manage memory efficiently, you can use the strea
 ### What inference arguments does Ultralytics YOLO support?
 
 The `model.predict()` method in YOLO supports various arguments such as `conf`, `iou`, `imgsz`, `device`, and more. These arguments allow you to customize the inference process, setting parameters like confidence thresholds, image size, and the device used for computation. Detailed descriptions of these arguments can be found in the [inference arguments](#inference-arguments) section.
+
+### How do I extract embeddings from a YOLO model?
+
+Use `model.embed(source)` to extract feature embeddings from the second-to-last layer, or pass `embed=[layer_index]` to `model.predict()` to choose specific layers.
+
+```python
+from ultralytics import YOLO
+
+model = YOLO("yolo26n.pt")
+source = "https://ultralytics.com/images/bus.jpg"
+
+results = model.predict(source)  # Results objects
+embeddings = model.embed(source)  # list of torch.Tensor embeddings
+```
 
 ### How can I visualize and save the results of YOLO predictions?
 

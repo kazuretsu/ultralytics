@@ -4,9 +4,38 @@ from __future__ import annotations
 
 import ast
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 import torch
+
+
+def read_tflite_metadata(file: str | Path) -> dict | None:
+    """Read Ultralytics metadata embedded in a ``.tflite`` file.
+
+    Ultralytics appends metadata to the end of ``.tflite`` flatbuffers as a zip entry (``metadata.json`` for
+    litert-torch/single-file exports, or a single literal-dict entry for legacy onnx2tf exports). Returns the parsed
+    metadata dict, or ``None`` if the file has no readable embedded metadata.
+
+    Args:
+        file (str | Path): Path to the ``.tflite`` model file.
+
+    Returns:
+        (dict | None): Parsed metadata dictionary, or ``None`` if absent or unreadable.
+    """
+    import json
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(file, "r") as zf:
+            names = zf.namelist()
+            if "metadata.json" in names:
+                return json.loads(zf.read("metadata.json"))
+            if names:  # legacy onnx2tf exports store a single Python-literal dict entry
+                return ast.literal_eval(zf.read(names[0]).decode("utf-8"))
+    except (zipfile.BadZipFile, SyntaxError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+    return None
 
 
 class BaseBackend(ABC):
@@ -22,12 +51,14 @@ class BaseBackend(ABC):
         nhwc (bool): Whether the model expects NHWC input format instead of NCHW.
         stride (int): Model stride, typically 32 for YOLO models.
         names (dict): Dictionary mapping class indices to class names.
-        task (str | None): The task type (detect, segment, classify, pose, obb).
+        task (str | None): The task type (detect, segment, semantic, classify, pose, obb).
         batch (int): Batch size for inference.
         imgsz (tuple): Input image size as (height, width).
         channels (int): Number of input channels, typically 3 for RGB.
         end2end (bool): Whether the model includes end-to-end NMS post-processing.
         dynamic (bool): Whether the model supports dynamic input shapes.
+        base_model (bool): Whether the loaded model is an Ultralytics `BaseModel`, and so implements the `augment` and
+            `embed` forward arguments.
         metadata (dict): Model metadata dictionary containing export configuration.
     """
 
@@ -49,6 +80,7 @@ class BaseBackend(ABC):
         self.channels = 3
         self.end2end = False
         self.dynamic = False
+        self.base_model = False
         self.metadata = {}
         self.model = None
         self.load_model(weight)

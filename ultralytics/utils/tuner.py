@@ -145,7 +145,7 @@ def _convert_bohb_search_space(space):
         par = "/".join(str(p) for p in path)
         sampler = domain.get_sampler()
         if isinstance(sampler, Quantized):
-            raise ValueError("TuneBOHB does not support quantized search spaces with the current ConfigSpace version.")
+            raise TypeError("TuneBOHB does not support quantized search spaces with the current ConfigSpace version.")
 
         if isinstance(domain, Float) and isinstance(sampler, (Uniform, LogUniform)):
             cs.add(
@@ -163,7 +163,7 @@ def _convert_bohb_search_space(space):
         elif isinstance(domain, Categorical) and isinstance(sampler, Uniform):
             cs.add(ConfigSpace.CategoricalHyperparameter(par, choices=domain.categories))
         else:
-            raise ValueError(
+            raise TypeError(
                 f"TuneBOHB does not support parameters of type {type(domain).__name__} "
                 f"with sampler type {type(domain.sampler).__name__}."
             )
@@ -408,7 +408,7 @@ def run_ray_tune(
         "mosaic": tune.uniform(0.0, 1.0),  # image mosaic (probability)
         "mixup": tune.uniform(0.0, 1.0),  # image mixup (probability)
         "cutmix": tune.uniform(0.0, 1.0),  # image cutmix (probability)
-        "copy_paste": tune.uniform(0.0, 1.0),  # segment copy-paste (probability)
+        "copy_paste": tune.uniform(0.0, 1.0),  # segment copy-paste (object fraction)
         "close_mosaic": tune.randint(0, 11),  # close dataloader mosaic (epochs)
     }
 
@@ -427,7 +427,10 @@ def run_ray_tune(
 
         # Set trial-specific name for W&B logging
         try:
-            trial_id = tune.get_trial_id()  # Get current trial ID (e.g., "2c2fc_00000")
+            if hasattr(tune, "get_context"):
+                trial_id = tune.get_context().get_trial_id()  # Ray ≥2.7, get current trial ID (e.g., "tune_c1c1ce99")
+            else:
+                trial_id = tune.get_trial_id()  # Ray <2.7
             trial_suffix = trial_id.split("_")[-1] if "_" in trial_id else trial_id
             config["name"] = f"{base_name}_{trial_suffix}"
         except Exception:
@@ -478,7 +481,7 @@ def run_ray_tune(
     tune_dir = get_save_dir(
         get_cfg(
             DEFAULT_CFG,
-            {**train_args, **{"exist_ok": train_args.pop("resume", False)}},  # resume w/ same tune_dir
+            {**train_args, "exist_ok": train_args.pop("resume", False)},  # resume w/ same tune_dir
         ),
         name=train_args.pop("name", "tune"),  # runs/{task}/{tune_dir}
     )  # must be absolute dir
