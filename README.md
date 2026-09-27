@@ -4,7 +4,7 @@ A fork of [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) 
 
 The target is object detection that runs **offline on a tight compute budget**: a YOLO26 head on top of a MobileNetV3 or EfficientNetV2 feature extractor. Everything else in Ultralytics — training loop, augmentation, validation, export — works unchanged.
 
-- **Upstream sync:** Ultralytics **v8.4.126**
+- **Upstream sync:** Ultralytics **v8.4.163**
 - **License:** AGPL-3.0, same as upstream (see [License](#license))
 - **Full Ultralytics documentation:** <https://docs.ultralytics.com>
 
@@ -321,10 +321,13 @@ For `yolo26n-mobilenetv3` that freezes 2,971,952 backbone parameters and trains 
 Export works normally — the backbone is plain PyTorch:
 
 ```bash
-yolo export model=runs/detect/train/weights/best.pt format=onnx  imgsz=640   # verified
+yolo export model=runs/detect/train/weights/best.pt format=onnx  imgsz=640             # verified
+yolo export model=runs/detect/train/weights/best.pt format=onnx  imgsz=640 nms=False   # verified, NMS-free head
 yolo export model=runs/detect/train/weights/best.pt format=openvino int8=True
 yolo export model=runs/detect/train/weights/best.pt format=tflite  int8=True
 ```
+
+Since upstream v8.4.142, the YOLO26 head's output is chosen by `nms`: the default (`nms=None`) exports raw one-to-many predictions, `(1, 4 + nc, 8400)` at 640, which still need NMS on the device. `nms=False` exports the NMS-free one-to-one head, `(1, 300, 6)` rows of `x1, y1, x2, y2, score, class`. On a low-resource target that has no fast NMS, `nms=False` is usually the better choice.
 
 Two things to watch on the edge:
 
