@@ -84,7 +84,7 @@ dependencies = [
 # Optional dependencies ------------------------------------------------------------------------------------------------
 [project.optional-dependencies]
 backbones = [
-    "timm>=1.0.0", # custom feature extractors, i.e. MobileNetV3Backbone / EfficientNetV2Backbone (see README.md)
+    "timm>=1.0.0", # custom feature extractors, i.e. TimmBackbone with MobileNetV4 / EfficientNetV2 (see README.md)
 ]
 dev = [
     "ipython",

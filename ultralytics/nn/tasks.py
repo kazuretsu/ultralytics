@@ -78,13 +78,9 @@ from ultralytics.nn.modules import (
     YOLOESegment,
     YOLOESegment26,
     v10Detect,
-    EfficientNetV2Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
     FeatureSelect,
-    MobileNetV3Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
     MultiScaleBackbone,
-    ResNet50Backbone,  # noqa: F401 - resolved by name from globals() in parse_model()
     TimmBackbone,  # noqa: F401 - resolved by name from globals() in parse_model()
-    TorchvisionBackbone,  # noqa: F401 - resolved by name from globals() in parse_model()
 )
 from ultralytics.utils import (
     DEFAULT_CFG_DICT,
