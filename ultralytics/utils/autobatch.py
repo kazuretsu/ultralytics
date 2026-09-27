@@ -15,7 +15,7 @@ from ultralytics.utils.torch_utils import autocast, get_torch_device_backend, pr
 def check_train_batch_size(
     model: torch.nn.Module,
     imgsz: int = 640,
-    amp: bool = True,
+    amp: bool | torch.dtype = True,
     batch: float = -1,
     max_num_obj: int = 1,
     dataset_size: int = 0,
@@ -25,7 +25,7 @@ def check_train_batch_size(
     Args:
         model (torch.nn.Module): YOLO model to check batch size for.
         imgsz (int, optional): Image size used for training.
-        amp (bool, optional): Use automatic mixed precision if True.
+        amp (bool | torch.dtype, optional): Whether to use mixed precision, or the autocast dtype.
         batch (int | float, optional): Fraction of GPU memory to use. If -1, use default.
         max_num_obj (int, optional): The maximum number of objects from dataset.
         dataset_size (int, optional): Total number of training images. If > 0, batch size will not exceed this value.
@@ -118,10 +118,9 @@ def autobatch(
             fit_x, fit_y = zip(*xy)
             p = np.polyfit(fit_x, fit_y, deg=1)  # first-degree (linear) polynomial fit
             b = int((round(f * fraction) - p[1]) / p[0])  # y intercept (optimal batch size)
-            if None in results:  # some sizes failed
-                i = results.index(None)  # first fail index
-                if b >= batch_sizes[i]:  # y intercept above failure point
-                    b = batch_sizes[max(i - 1, 0)]  # select prior safe point
+            oom = next((i for i, y in enumerate(results) if not y and batch_sizes[i] > fit_x[0]), None)
+            if oom is not None and b >= batch_sizes[oom]:  # first failure above a success is the memory ceiling
+                b = batch_sizes[oom - 1]  # select prior safe point
             if b < 1 or b > 1024:  # b outside of safe range
                 LOGGER.warning(f"{prefix}batch={b} outside safe range, using default batch-size {batch_size}.")
                 b = batch_size

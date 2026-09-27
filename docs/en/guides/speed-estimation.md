@@ -5,7 +5,7 @@ description: Estimate the speed of tracked objects in video with Ultralytics YOL
 keywords: Ultralytics YOLO26, speed estimation, object tracking, vehicle speed, traffic control, autonomous navigation, surveillance, computer vision
 ---
 
-# Speed Estimation using Ultralytics YOLO26 🚀
+# Speed Estimation using Ultralytics YOLO26
 
 ## What is Speed Estimation?
 
@@ -34,10 +34,10 @@ keywords: Ultralytics YOLO26, speed estimation, object tracking, vehicle speed, 
 
 ## Real World Applications
 
-|                                                                            Transportation                                                                             |                                                                              Transportation                                                                               |
-| :-------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| ![Speed Estimation on Road using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/speed-estimation-on-road-using-ultralytics-yolov8.avif) | ![Speed Estimation on Bridge using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/speed-estimation-on-bridge-using-ultralytics-yolov8.avif) |
-|                                                           Speed Estimation on Road using Ultralytics YOLO26                                                           |                                                            Speed Estimation on Bridge using Ultralytics YOLO26                                                            |
+|                                                  Transportation                                                  |                                                   Transportation                                                   |
+| :--------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------: |
+| ![Speed Estimation on Road using Ultralytics YOLO26](https://cdn.ul.run/i/4d24b34b71b3154a20cb4ec598022204.avif) | ![Speed Estimation on Bridge using Ultralytics YOLO26](https://cdn.ul.run/i/f48362a36acbf45ed3627dda1b2c88df.avif) |
+|                                Speed Estimation on Road using Ultralytics YOLO26                                 |                                Speed Estimation on Bridge using Ultralytics YOLO26                                 |
 
 ???+ warning "Speed is an Estimate"
 
@@ -116,8 +116,7 @@ Here's a table with the `SpeedEstimator` arguments:
 
 The `SpeedEstimator` solution allows the use of `track` parameters:
 
-{% from "macros/solutions-track-args.md" import param_table %}
-{{ param_table(["tracker", "conf", "iou", "classes", "device"]) }}
+{% include "macros/solutions-track-args.md" %}
 
 Additionally, the following visualization options are supported:
 

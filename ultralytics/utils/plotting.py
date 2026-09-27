@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -325,7 +326,8 @@ class Annotator:
                 self.font = ImageFont.load_default()
             # Deprecation fix for w, h = getsize(string) -> _, _, w, h = getbox(string)
             if check_version(pil_version, "9.2.0"):
-                self.font.getsize = lambda x: self.font.getbbox(x)[2:4]  # text width, height
+                font = weakref.proxy(self.font)
+                self.font.getsize = lambda x: font.getbbox(x)[2:4]  # text width, height
         else:  # use cv2
             assert im.is_contiguous() if input_is_tensor else im.data.contiguous, (
                 "Image not contiguous. Apply contiguous() or np.ascontiguousarray(im) to Annotator input images."
@@ -812,10 +814,8 @@ def save_one_box(
         >>> im = cv2.imread("image.jpg")
         >>> cropped_im = save_one_box(xyxy, im, file="cropped.jpg", square=True)
     """
-    if isinstance(xyxy, np.ndarray):
-        xyxy = torch.from_numpy(xyxy)
-    elif not isinstance(xyxy, torch.Tensor):  # may be list
-        xyxy = torch.stack(xyxy)
+    if not isinstance(xyxy, torch.Tensor):
+        xyxy = torch.as_tensor(xyxy)  # list, tuple, or ndarray
     b = ops.xyxy2xywh(xyxy.view(-1, 4))  # boxes
     if square:
         b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # attempt rectangle to square
@@ -979,7 +979,7 @@ def plot_images(
                         kpts_[..., 0] *= w  # scale to pixels
                         kpts_[..., 1] *= h
                     elif scale < 1:  # absolute coords need scale if image scales
-                        kpts_ *= scale
+                        kpts_[..., :2] *= scale
                 kpts_[..., 0] += x
                 kpts_[..., 1] += y
                 for j in range(len(kpts_)):
@@ -1053,9 +1053,9 @@ def plot_images(
 
 @plt_settings()
 def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Callable | None = None):
-    """Plot training results from a results CSV file. The function supports various types of data including instance
-    segmentation, semantic segmentation, pose estimation, and classification. Plots are saved as 'results.png' in
-    the directory where the CSV is located.
+    """Plot training results from a results CSV file. The function supports various types of data including detection,
+    instance segmentation, semantic segmentation, depth estimation, classification, and pose estimation. Plots are
+    saved as 'results.png' in the directory where the CSV is located.
 
     Args:
         file (str, optional): Path to the CSV file containing the training results.
@@ -1077,19 +1077,20 @@ def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Call
     fig, ax = None, None
     for i, f in enumerate(files):
         try:
-            data = pl.read_csv(f, infer_schema_length=None)
+            data = pl.read_csv(f.read_bytes(), infer_schema_length=None)
             if i == 0:
                 for c in data.columns:
                     if "loss" in c:
                         loss_keys.append(c)
                     elif "metric" in c:
                         metric_keys.append(c)
-                loss_mid, metric_mid = len(loss_keys) // 2, len(metric_keys) // 2
+                loss_mid, metric_mid = len(loss_keys) // 2, (len(metric_keys) + 1) // 2
                 columns = (
                     loss_keys[:loss_mid] + metric_keys[:metric_mid] + loss_keys[loss_mid:] + metric_keys[metric_mid:]
                 )
-                fig, ax = plt.subplots(2, len(columns) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
+                fig, ax = plt.subplots(2, (len(columns) + 1) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
                 ax = ax.ravel()
+                ax[-1].set_visible(len(columns) % 2 == 0)
             x = data.select(data.columns[0]).to_numpy().flatten()
             for i, j in enumerate(columns):
                 y = data.select(j).to_numpy().flatten().astype("float")
@@ -1299,20 +1300,40 @@ def plot_tune_results(results_file: str = "tune_results.ndjson", exclude_zero_fi
             plt.yticks([])
     _save_one_file(results_file.with_name("tune_scatter_plots.png"))
 
-    # Fitness vs iteration
-    x = range(1, len(all_fitness) + 1)
-    plt.figure(figsize=(10, 6), tight_layout=True)
-    for dataset in sorted({k for r in records for k in r.get("datasets", {})}):
-        y = np.array([r.get("datasets", {}).get(dataset, {}).get("fitness", np.nan) for r in records], dtype=float)
-        if exclude_zero_fitness_points and not isinstance(zero_mask, slice):
-            y = y[zero_mask]
-        plt.plot(x, y, "o", markersize=5, alpha=0.8, label=dataset)
-    plt.plot(x, _gaussian_filter1d(all_fitness, sigma=3), ":", color="0.35", label="smoothed mean", linewidth=2)
-    plt.title("Fitness vs Iteration")
-    plt.xlabel("Iteration")
-    plt.ylabel("Fitness")
-    plt.grid(True)
-    plt.legend()
+    # Fitness progress and per-dataset change from the initial to best result
+    plot_records = records if isinstance(zero_mask, slice) else [r for r, keep in zip(records, zero_mask) if keep]
+    datasets = sorted({k for r in plot_records for k in r.get("datasets", {})})
+    _, (ax1, ax2) = plt.subplots(
+        1,
+        2,
+        figsize=(16, max(6, len(datasets) * 0.28)),
+        gridspec_kw={"width_ratios": (1, 1.35)},
+        constrained_layout=True,
+    )
+    iterations = np.array([r.get("iteration", i) for i, r in enumerate(plot_records, 1)])
+    best_idx = int(all_fitness.argmax())
+    ax1.scatter(iterations, all_fitness, s=28, color="0.45", alpha=0.75, label="Iteration")
+    ax1.plot(iterations, np.maximum.accumulate(all_fitness), color="#2563eb", linewidth=2.5, label="Best so far")
+    ax1.axhline(all_fitness[0], color="#dc2626", linestyle="--", label=f"Initial {all_fitness[0]:.4f}")
+    ax1.scatter(iterations[best_idx], all_fitness[best_idx], s=90, color="#16a34a", zorder=5, label="Best")
+    ax1.set(title="Fitness Progress", xlabel="Iteration", ylabel="Fitness")
+    ax1.grid(alpha=0.2)
+    ax1.legend()
+    if datasets:
+        initial = np.array([plot_records[0].get("datasets", {}).get(k, {}).get("fitness", 0.0) for k in datasets])
+        best = np.array([plot_records[best_idx].get("datasets", {}).get(k, {}).get("fitness", 0.0) for k in datasets])
+        order = np.argsort(best - initial)
+        y = np.arange(len(datasets))
+        ax2.hlines(y, initial[order], best[order], color="0.8")
+        ax2.scatter(initial[order], y, s=24, color="#dc2626", label="Initial")
+        ax2.scatter(best[order], y, s=24, color="#16a34a", label=f"Best aggregate iteration {iterations[best_idx]}")
+        ax2.set_yticks(y)
+        ax2.set_yticklabels(np.array(datasets)[order], fontsize=8)
+        ax2.set(title="Per-Dataset Fitness: Initial vs Best Aggregate Iteration", xlabel="Fitness")
+        ax2.grid(axis="x", alpha=0.2)
+        ax2.legend()
+    else:
+        ax2.set_axis_off()
     _save_one_file(results_file.with_name("tune_fitness.png"))
 
 
@@ -1358,8 +1379,8 @@ def class_activation_map(
     def hook(module, inputs, output):
         """Capture the class logits leaving the head."""
         raw = output[1] if isinstance(output, tuple) else output  # heads returning (predictions, raw) keep the raw
-        if isinstance(raw, dict):  # Detect and subclasses, end2end heads predict from their one2one branch
-            s = raw.get("one2one", raw)["scores"]  # (B, nc, anchors)
+        if isinstance(raw, dict):  # Detect and subclasses: follow the selected inference branch
+            s = raw.get("one2one" if module.end2end else "one2many", raw)["scores"]  # (B, nc, anchors)
         elif isinstance(raw, tuple):  # RTDETRDecoder, raw = (dec_bboxes, dec_scores, ...)
             s = raw[1][-1].transpose(1, 2)  # last decoder layer, (B, nc, queries)
         else:  # Classify (B, nc), SemanticSegment (B, nc, h, w), Depth (B, 1, h, w)

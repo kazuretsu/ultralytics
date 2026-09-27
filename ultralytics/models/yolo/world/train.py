@@ -12,6 +12,7 @@ from ultralytics.data import build_yolo_dataset
 from ultralytics.models.yolo.detect import DetectionTrainer
 from ultralytics.nn.tasks import WorldModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils.patches import torch_load
 from ultralytics.utils.torch_utils import unwrap_model
 
 
@@ -19,7 +20,7 @@ def on_pretrain_routine_end(trainer) -> None:
     """Set up model classes and text encoder at the end of the pretrain routine."""
     # Set on all ranks: validation runs on every rank, but txt_feats/nc are not DDP buffers so they don't sync
     names = [name.split("/", 1)[0] for name in list(trainer.test_loader.dataset.data["names"].values())]
-    unwrap_model(trainer.ema.ema).set_classes(names, cache_clip_model=False)
+    trainer.ema.ema.set_classes(names, cache_clip_model=False)
 
 
 class WorldTrainer(DetectionTrainer):
@@ -151,7 +152,7 @@ class WorldTrainer(DetectionTrainer):
         cache_path = cache_dir / f"text_embeddings_{model.replace(':', '_').replace('/', '_')}.pt"
         if cache_path.exists():
             LOGGER.info(f"Reading existed cache from '{cache_path}'")
-            txt_map = torch.load(cache_path, map_location=self.device)
+            txt_map = torch_load(cache_path, map_location=self.device)
             if sorted(txt_map.keys()) == sorted(texts):
                 return txt_map
         LOGGER.info(f"Caching text embeddings to '{cache_path}'")

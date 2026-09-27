@@ -17,7 +17,6 @@ def non_max_suppression(
     classes=None,
     agnostic: bool = False,
     multi_label: bool = False,
-    labels=(),
     max_det: int = 300,
     nc: int = 0,  # number of classes (optional)
     max_time_img: float = 0.05,
@@ -40,7 +39,6 @@ def non_max_suppression(
         classes (list[int], optional): List of class indices to consider. If None, all classes are considered.
         agnostic (bool): Whether to perform class-agnostic NMS.
         multi_label (bool): Whether each box can have multiple labels.
-        labels (list[torch.Tensor]): A priori labels for each image.
         max_det (int): Maximum number of detections to keep per image.
         nc (int): Number of classes. Indices after this are considered masks.
         max_time_img (float): Maximum time in seconds for processing one image.
@@ -70,7 +68,7 @@ def non_max_suppression(
             if classes is not None:
                 mask &= (pred[:, 5:6] == classes).any(1)
             idx = mask.nonzero(as_tuple=False).view(-1)[:max_det]
-            output.append(pred[idx])
+            output.append(pred[idx].float())  # half backend outputs: match the float32 rows the NMS branch returns
             keepi.append(idx)
         return (output, keepi) if return_idxs else output
 
@@ -87,28 +85,20 @@ def non_max_suppression(
     multi_label &= nc > 1  # multiple labels per box (adds 0.5ms/img)
 
     prediction = prediction.transpose(-1, -2)  # shape(1,84,6300) to shape(1,6300,84)
-    if not rotated:
-        prediction[..., :4] = xywh2xyxy(prediction[..., :4])  # xywh to xyxy
 
     t = time.time()
     output = [torch.zeros((0, 6 + extra), device=prediction.device)] * bs
     keepi = [torch.zeros((0, 1), device=prediction.device)] * bs  # to store the kept idxs
-    use_torchvision = prediction.device.type not in {"npu", "xpu"} and "torchvision" in sys.modules
+    use_torchvision = prediction.device.type != "xpu" and "torchvision" in sys.modules
     for xi, (x, xk) in enumerate(zip(prediction, xinds)):  # image index, (preds, preds indices)
         # Apply constraints
         # x[((x[:, 2:4] < min_wh) | (x[:, 2:4] > max_wh)).any(1), 4] = 0  # width-height
         filt = xc[xi]  # confidence
         x = x[filt]
+        if not rotated:
+            x[:, :4] = xywh2xyxy(x[:, :4])
         if return_idxs:
             xk = xk[filt]
-
-        # Cat apriori labels if autolabelling
-        if labels and len(labels[xi]) and not rotated:
-            lb = labels[xi]
-            v = torch.zeros((len(lb), nc + extra + 4), device=x.device)
-            v[:, :4] = xywh2xyxy(lb[:, 1:5])  # box
-            v[range(len(lb)), lb[:, 0].long() + 4] = 1.0  # cls
-            x = torch.cat((x, v), 0)
 
         # If none remain process next image
         if not x.shape[0]:
@@ -153,7 +143,7 @@ def non_max_suppression(
             i = TorchNMS.fast_nms(boxes, scores, iou_thres, iou_func=batch_probiou)
         else:
             boxes = x[:, :4] + c  # boxes (offset by class)
-            # Use torchvision if already imported and supported; its NMS has no NPU/XPU kernels.
+            # Use torchvision if already imported; it has no XPU NMS kernel, but torch_npu CPU-falls back on NPU.
             if use_torchvision:
                 import torchvision  # scope as slow import
 
@@ -176,12 +166,11 @@ class TorchNMS:
     """Ultralytics custom NMS implementation optimized for YOLO.
 
     This class provides static methods for performing non-maximum suppression (NMS) operations on bounding boxes,
-    including standard NMS, fast NMS, and batched NMS for multi-class scenarios.
+    including standard NMS and fast NMS.
 
     Methods:
         fast_nms: Fast-NMS using upper triangular matrix operations.
         nms: Optimized NMS with early termination that matches torchvision behavior exactly.
-        batched_nms: Batched NMS for class-aware suppression.
 
     Examples:
         Perform standard NMS on boxes and scores
@@ -301,44 +290,3 @@ class TorchNMS:
             order = rest[iou <= iou_threshold]
 
         return keep[:keep_idx]
-
-    @staticmethod
-    def batched_nms(
-        boxes: torch.Tensor,
-        scores: torch.Tensor,
-        idxs: torch.Tensor,
-        iou_threshold: float,
-        use_fast_nms: bool = False,
-    ) -> torch.Tensor:
-        """Batched NMS for class-aware suppression.
-
-        Args:
-            boxes (torch.Tensor): Bounding boxes with shape (N, 4) in xyxy format.
-            scores (torch.Tensor): Confidence scores with shape (N,).
-            idxs (torch.Tensor): Class indices with shape (N,).
-            iou_threshold (float): IoU threshold for suppression.
-            use_fast_nms (bool): Whether to use the Fast-NMS implementation.
-
-        Returns:
-            (torch.Tensor): Indices of boxes to keep after NMS.
-
-        Examples:
-            Apply batched NMS across multiple classes
-            >>> boxes = torch.tensor([[0, 0, 10, 10], [5, 5, 15, 15]])
-            >>> scores = torch.tensor([0.9, 0.8])
-            >>> idxs = torch.tensor([0, 1])
-            >>> keep = TorchNMS.batched_nms(boxes, scores, idxs, 0.5)
-        """
-        if boxes.numel() == 0:
-            return torch.empty((0,), dtype=torch.int64, device=boxes.device)
-
-        # Strategy: offset boxes by class index to prevent cross-class suppression
-        max_coordinate = boxes.max()
-        offsets = idxs.to(boxes) * (max_coordinate + 1)
-        boxes_for_nms = boxes + offsets[:, None]
-
-        return (
-            TorchNMS.fast_nms(boxes_for_nms, scores, iou_threshold)
-            if use_fast_nms
-            else TorchNMS.nms(boxes_for_nms, scores, iou_threshold)
-        )

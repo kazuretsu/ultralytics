@@ -81,7 +81,7 @@ The COCO128 dataset (7 MB) downloads automatically the first time you start trai
 
 Here are some examples of images from the COCO128 dataset, along with their corresponding annotations:
 
-<img src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/mosaiced-training-batch-1.avif" alt="COCO128 object detection dataset mosaic training batch" width="800">
+<img src="https://cdn.ul.run/i/0ad1322ce67942909904ccc1e57afd4e.avif" alt="COCO128 object detection dataset mosaic training batch" width="800">
 
 - **Mosaiced Image**: This image demonstrates a training batch composed of mosaiced dataset images. Mosaicing is a technique used during training that combines multiple images into a single image to increase the variety of objects and scenes within each training batch. This helps improve the model's ability to generalize to different object sizes, aspect ratios, and contexts.
 
@@ -131,7 +131,6 @@ To train a YOLO26 model on the COCO128 dataset, you can use either Python or CLI
         # Train the model
         results = model.train(data="coco128.yaml", epochs=100, imgsz=640)
         ```
-
 
     === "CLI"
 

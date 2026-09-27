@@ -28,10 +28,10 @@ The [RegionCounter solution](../reference/solutions/region_counter.md) in [Ultra
 
 ## Real World Applications
 
-|                                                                                                Retail                                                                                                 |                                                                                     Market Streets                                                                                      |
-| :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| ![Ultralytics YOLO counting people inside drawn polygon regions in a retail store](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/people-counting-different-region-ultralytics-yolov8.avif) | ![Ultralytics YOLO region counts overlaid on a crowded market street](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/crowd-counting-different-region-ultralytics-yolov8.avif) |
-|                                                                              Ultralytics YOLO People Counting in Regions                                                                              |                                                                       Ultralytics YOLO Crowd Counting in Regions                                                                        |
+|                                                                     Retail                                                                     |                                                          Market Streets                                                           |
+| :--------------------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------: |
+| ![Ultralytics YOLO counting people inside drawn polygon regions in a retail store](https://cdn.ul.run/i/fe73398cea2c66ea7d666593160baef5.avif) | ![Ultralytics YOLO region counts overlaid on a crowded market street](https://cdn.ul.run/i/fb862e384539b1046f843a2d5691ad80.avif) |
+|                                                  Ultralytics YOLO People Counting in Regions                                                   |                                            Ultralytics YOLO Crowd Counting in Regions                                             |
 
 ## How to Count Objects in Regions with Ultralytics YOLO
 
@@ -110,8 +110,7 @@ Here's a table with the `RegionCounter` arguments:
 
 The `RegionCounter` solution enables the use of object tracking parameters:
 
-{% from "macros/solutions-track-args.md" import param_table %}
-{{ param_table(["tracker", "conf", "iou", "classes", "device"]) }}
+{% include "macros/solutions-track-args.md" %}
 
 Additionally, the following visualization settings are supported:
 

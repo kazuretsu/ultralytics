@@ -50,6 +50,15 @@ IMG_FORMATS = {
 }
 VID_FORMATS = {"asf", "avi", "gif", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "wmv", "webm"}  # videos
 FORMATS_HELP_MSG = f"Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
+DATASET_KEY_TYPES = {  # dataset YAML keys and their permitted types
+    "path": (str,),
+    "train": (str, list),
+    "val": (str, list),
+    "test": (str, list),
+    "names": (list, dict),
+    "kpt_shape": (list,),
+    "flip_idx": (list,),
+}
 
 DEPTH_PNG_SCALE = 1000  # uint16 millimeters by default; zero is invalid
 
@@ -91,10 +100,10 @@ def load_depth(path: str | Path, scale: float = DEPTH_PNG_SCALE) -> np.ndarray:
     return depth
 
 
-def img2label_paths(img_paths: list[str], label_dir: str = "labels", suffix: str = ".txt") -> list[str]:
+def img2label_paths(img_paths: list[str | Path], label_dir: str = "labels", suffix: str = ".txt") -> list[str]:
     """Convert image paths to label paths by replacing 'images' with 'labels' and extension with '.txt'."""
     sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}{label_dir}{os.sep}"  # /images/, /labels/ substrings
-    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + f"{suffix}" for x in img_paths]
+    return [sb.join(os.fspath(x).rsplit(sa, 1)).rsplit(".", 1)[0] + f"{suffix}" for x in img_paths]
 
 
 def check_file_speeds(
@@ -176,16 +185,19 @@ def check_file_speeds(
 
 
 def get_hash(paths: list[str]) -> str:
-    """Return a single hash value of a list of paths (files or dirs)."""
-    size = 0
+    """Return a hash of paths and their file sizes and modification times."""
+    h = __import__("hashlib").sha256()
     for p in paths:
+        h.update(p.encode())
+        h.update(b"\0")
         try:
-            size += os.stat(p).st_size
+            stat = os.stat(p)
         except OSError:
+            h.update(b"\0")
             continue
-    h = __import__("hashlib").sha256(str(size).encode())  # hash sizes
-    h.update("".join(paths).encode())  # hash paths
-    return h.hexdigest()  # return hash
+        h.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode())
+        h.update(b"\0")
+    return h.hexdigest()
 
 
 def exif_size(img: Image.Image) -> tuple[int, int]:
@@ -221,7 +233,7 @@ def check_image(im_file: str) -> tuple[str, tuple[int, int]]:
     shape = exif_size(im)  # image size
     shape = (shape[1], shape[0])  # hw
     assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
-    assert im.format.lower() in IMG_FORMATS, f"Invalid image format {im.format}. {FORMATS_HELP_MSG}"
+    assert im.format.lower() in IMG_FORMATS | {"jpeg2000"}, f"Invalid image format {im.format}. {FORMATS_HELP_MSG}"
     if im.format.lower() in {"jpg", "jpeg"}:
         with open(im_file, "rb") as f:
             f.seek(-2, 2)
@@ -285,7 +297,7 @@ def verify_image_depth(args: tuple) -> tuple:
 
 def verify_image_mask(args: tuple) -> tuple:
     """Verify that an image and its semantic mask exist, are readable, and have matching shapes."""
-    im_file, mask_file, prefix, check_bit_depth = args
+    im_file, mask_file, prefix = args
     # Number (found, missing, corrupt), message
     nf, nm, nc, msg = 0, 0, 0, ""
     try:
@@ -301,10 +313,8 @@ def verify_image_mask(args: tuple) -> tuple:
             mask = cv2.imread(mask_file, cv2.IMREAD_GRAYSCALE)
             assert mask is not None, f"mask file {mask_file} is unreadable"
             assert mask.shape[:2] == shape, f"mask size {mask.shape[:2]} does not match image size {shape}"
-            is_1bit = False
-            if check_bit_depth:
-                with Image.open(mask_file) as im:
-                    is_1bit = im.mode == "1"
+            with Image.open(mask_file) as im:
+                is_1bit = im.mode == "1"  # recorded for every mask so a yaml 'nc' edit never needs a rescan
             nf = 1
         else:
             nm = 1
@@ -332,6 +342,8 @@ def verify_image_label(args: tuple) -> list:
             nf = 1  # label found
             with open(lb_file, encoding="utf-8") as f:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                if nkpt and not keypoint:  # pose labels for a box task: keep the box, drop the keypoints
+                    lb = [x[:5] if len(x) == 5 + nkpt * ndim else x for x in lb]
                 if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
                     assert not any(len(x) == 5 for x in lb), "labels mix segment and detection rows"
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
@@ -505,15 +517,29 @@ def find_dataset_yaml(path: Path) -> Path:
     Returns:
         (Path): The path of the found YAML file.
     """
-    files = list(path.glob("*.yaml")) or list(path.rglob("*.yaml"))  # try root level first and then recursive
+    # try root level first and then recursive
+    files = [*path.glob("*.yaml"), *path.glob("*.yml")] or [*path.rglob("*.yaml"), *path.rglob("*.yml")]
     assert files, f"No YAML file found in '{path.resolve()}'"
     if len(files) > 1:
-        files = [f for f in files if f.stem == path.stem]  # prefer *.yaml files that match
+        files = [f for f in files if f.stem == path.stem]  # prefer YAML files that match
     assert len(files) == 1, f"Expected 1 YAML file in '{path.resolve()}', but found {len(files)}.\n{files}"
     return files[0]
 
 
-def convert_ndjson_to_yolo_if_needed(data: str | Path) -> str | Path:
+def get_split_fraction(fraction: float | list[float | int], split: str) -> float | int:
+    """Return a split ratio/count, normalizing boundary values to 0.0 (none) or 1.0 (all)."""
+    if isinstance(fraction, list) and split in (splits := ("train", "val", "test")):
+        index = splits.index(split)
+        fraction = fraction[index] if index < len(fraction) else 1.0
+    elif split != "train":
+        fraction = 1.0
+    fraction = float(fraction) if fraction in {0, 1} else fraction
+    if split in {"train", "val"} and fraction == 0:
+        raise ValueError(f"{split} fraction must select at least one image")
+    return fraction
+
+
+def convert_ndjson_to_yolo_if_needed(data: str | Path, fraction=1.0, *, split=None) -> str | Path:
     """Convert an NDJSON dataset or Platform dataset URI to YOLO format."""
     data = normalize_platform_uri(data)  # accept Platform web URLs (https://platform.ultralytics.com/.../datasets/...)
     data_str = str(data)
@@ -522,7 +548,7 @@ def convert_ndjson_to_yolo_if_needed(data: str | Path) -> str | Path:
 
         from ultralytics.data.converter import convert_ndjson_to_yolo
 
-        return asyncio.run(convert_ndjson_to_yolo(data))
+        return asyncio.run(convert_ndjson_to_yolo(data, fraction=fraction, split=split))
     return data
 
 
@@ -553,13 +579,18 @@ def check_det_dataset(dataset: str, autodownload: bool = True, split: str = "") 
     extract_dir = ""
     if zipfile.is_zipfile(file) or is_tarfile(file):
         new_dir = safe_download(file, dir=DATASETS_DIR, unzip=True, delete=False)
-        file = find_dataset_yaml(DATASETS_DIR / new_dir)
+        file = new_dir if new_dir.is_file() else find_dataset_yaml(new_dir)
         extract_dir, autodownload = file.parent, False
 
     # Read YAML
     data = YAML.load(file, append_filename=True)  # dictionary
 
     # Checks
+    for key, valid_types in DATASET_KEY_TYPES.items():
+        if data.get(key) is not None and not isinstance(data[key], valid_types):
+            expected = " or ".join(t.__name__ for t in valid_types)
+            raise TypeError(f"{dataset} '{key}' must be {expected}, not {type(data[key]).__name__}")
+
     for k in "train", "val":
         if k not in data:
             if k != "val" or "validation" not in data:
@@ -624,7 +655,9 @@ def check_det_dataset(dataset: str, autodownload: bool = True, split: str = "") 
                 raise FileNotFoundError(m)
             t = time.time()
             r = None  # success
-            if s.startswith("http") and s.endswith(".zip"):  # URL
+            if s.startswith("http") and s.endswith(
+                (".zip", ".tar", ".gz", ".tgz", ".xz", ".bz2", ".txz", ".tbz2")
+            ):  # URL
                 safe_download(url=s, dir=DATASETS_DIR, delete=True)
             elif s.startswith("bash "):  # bash script
                 LOGGER.info(f"Running {s} ...")
@@ -634,6 +667,8 @@ def check_det_dataset(dataset: str, autodownload: bool = True, split: str = "") 
             dt = f"({round(time.time() - t, 1)}s)"
             s = f"success ✅ {dt}, saved to {colorstr('bold', DATASETS_DIR)}" if r in {0, None} else f"failure {dt} ❌"
             LOGGER.info(f"Dataset download {s}\n")
+    if data.get("masks_dir") is None and (path / "masks").is_dir():  # after download so scripts can create it
+        data["masks_dir"] = "masks"  # PNG semantic masks in the default folder select SemanticDataset
     check_font("Arial.ttf" if is_ascii(data["names"]) else "Arial.Unicode.ttf")  # download fonts
 
     return data  # dictionary
@@ -664,7 +699,7 @@ def check_cls_dataset(dataset: str | Path, split: str = "") -> dict[str, Any]:
     # Download (optional if dataset=https://file.zip is passed directly)
     if str(dataset).startswith(("http:/", "https:/")):
         dataset = safe_download(dataset, dir=DATASETS_DIR, unzip=True, delete=False)
-    elif str(dataset).endswith((".zip", ".tar", ".gz")):
+    elif str(dataset).endswith((".zip", ".tar", ".gz", ".tgz", ".xz", ".bz2", ".txz", ".tbz2")):
         file = check_file(dataset)
         dataset = safe_download(file, dir=DATASETS_DIR, unzip=True, delete=False)
 

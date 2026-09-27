@@ -69,7 +69,7 @@ To train a YOLO26n-seg model on the COCO128-Seg dataset for 100 [epochs](https:/
 
 Here are some examples of images from the COCO128-Seg dataset, along with their corresponding annotations:
 
-<img src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/mosaiced-training-batch-2.avif" alt="COCO128-seg instance segmentation dataset mosaic" width="800">
+<img src="https://cdn.ul.run/i/ef2102eee716563150eb0ceeb43f4fbd.avif" alt="COCO128-seg instance segmentation dataset mosaic" width="800">
 
 - **Mosaiced Image**: This image demonstrates a training batch composed of mosaiced dataset images. Mosaicing is a technique used during training that combines multiple images into a single image to increase the variety of objects and scenes within each training batch. This helps improve the model's ability to generalize to different object sizes, aspect ratios, and contexts.
 
@@ -141,6 +141,6 @@ COCO128-Seg (128 images) sits between [COCO8-Seg](coco8-seg.md) (8 images) and t
 
 - **COCO8-Seg**: 8 images (4 train, 4 val) — ideal for quick sanity checks and debugging.
 - **COCO128-Seg**: 128 images — balanced between size and diversity, with train and val sharing the same directory.
-- **Full COCO-Seg**: 118,287 training images — comprehensive but resource-intensive, requiring ~27 GB on first download.
+- **Full COCO-Seg**: 118,287 training images — comprehensive but resource-intensive, requiring ~20 GB on first download.
 
 COCO128-Seg offers more diversity than COCO8-Seg while remaining far more manageable than the full COCO-Seg dataset for experimentation and initial model development.

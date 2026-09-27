@@ -5,7 +5,8 @@ creator:
     name: PASCAL Visual Object Classes
     url: https://www.robots.ox.ac.uk/~vgg/projects/pascal/VOC/
 license:
-    name: None
+    name: Other
+    url: https://www.robots.ox.ac.uk/~vgg/projects/pascal/VOC/databases.html
 description: Train YOLO26 on the PASCAL VOC detection dataset - 16,551 training and 4,952 validation images across 20 object classes with automatic download.
 keywords: PASCAL VOC, VOC dataset, VOC2007, VOC2012, object detection dataset, YOLO26, download PASCAL VOC, computer vision benchmark
 ---
@@ -104,7 +105,7 @@ To train a YOLO26n model on the VOC dataset for 100 [epochs](https://www.ultraly
 
 The image below shows a mosaiced training batch from the VOC dataset. Mosaicing combines multiple images into a single training sample, increasing the variety of objects, scales, and scene contexts the model sees in each batch — see the [YOLO data augmentation guide](../../guides/yolo-data-augmentation.md) for details.
 
-![Pascal VOC dataset mosaic training batch](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/mosaiced-voc-dataset-sample.avif)
+![Pascal VOC dataset mosaic training batch](https://cdn.ul.run/i/30425ce7ba0182b8991e90eaf1c31e38.avif)
 
 ## Citations and Acknowledgments
 

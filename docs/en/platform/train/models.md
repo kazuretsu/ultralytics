@@ -2,7 +2,7 @@
 plans: [free, pro, enterprise]
 title: Trained Model Management
 comments: true
-description: Learn how to manage, analyze, and export trained models in Ultralytics Platform with support for 20 deployment formats.
+description: Learn how to manage, analyze, and export trained models in Ultralytics Platform with support for 21 deployment formats.
 keywords: Ultralytics Platform, models, model management, export, ONNX, TensorRT, CoreML, YOLO
 ---
 
@@ -23,6 +23,7 @@ Upload existing model weights to the platform:
 Multiple files can be uploaded simultaneously (up to 3 concurrent).
 
 ![Ultralytics Platform Model Drag Drop Upload](https://cdn.ul.run/i/bc0d8b8d2325e5fa4d4a5d084cd5338b.avif)<!-- screenshot -->
+
 Supported model formats:
 
 | Format  | Extension | Description               |
@@ -59,7 +60,7 @@ graph LR
     B --> D[Predict]:::proc
     B --> E[Export]:::proc
     B --> F[Deploy]:::proc
-    E --> G[20 Formats]:::out
+    E --> G[21 Formats]:::out
     F --> H[Endpoint]:::out
 
     classDef start fill:#4CAF50,color:#fff
@@ -112,11 +113,11 @@ The Train tab has three subtabs:
 
 Interactive metric charts over epochs, split into **Training** and **Validation** views when the run produced validation artifacts. The chart groups follow the metrics the run reported:
 
-| Chart Group       | Charts                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------- |
-| **Metrics**       | The task metrics listed under [Model Header](#model-header)                           |
-| **Loss**          | One chart per loss component (box, cls, dfl, …), training solid and validation dashed |
-| **Learning Rate** | lr/pg0, lr/pg1, lr/pg2                                                                |
+| Chart Group       | Charts                                                                           |
+| ----------------- | -------------------------------------------------------------------------------- |
+| **Metrics**       | The task metrics listed under [Model Header](#model-header)                      |
+| **Loss**          | One chart per loss component (box, cls, …), training solid and validation dashed |
+| **Learning Rate** | lr/pg0, lr/pg1, lr/pg2                                                           |
 
 Each group collapses, its menu hides or shows individual charts (and, for losses, the train or validation series), and charts can be dragged and resized into a layout that persists across sessions.
 
@@ -164,7 +165,7 @@ Run interactive inference directly in the browser:
 
 ### Export Tab
 
-Export your model to 20 deployment formats. See [Export Model](#export-model) below and the core [Export mode guide](../../modes/export.md) for full details.
+Export your model to 21 deployment formats. See [Export Model](#export-model) below and the core [Export mode guide](../../modes/export.md) for full details.
 
 ### Deploy Tab
 
@@ -200,6 +201,7 @@ Detection models trained with a [saved dataset version](cloud-training.md#save-d
 - **Worst- and best-performing images**, ranked by per-image F1 and drawn with their ground-truth boxes
 - **Characteristic explorer**, correlating F1 against image width, height, pixel count, aspect ratio, and instance count, with the strongest relationship selected by default
 - **Classes associated with failures**, ranking which classes appear most often in the weakest images
+- **Find similar**, on the worst-performing gallery, on a single image in its fullscreen view, and on a class row, which searches public datasets for images like the captured failures and adds the ones you select to the training dataset as unlabeled `train` images (see [Find Similar Images](../data/datasets.md#find-similar-images)); shown when you can edit the project and the training dataset is a non-connected dataset of the same workspace
 
 !!! note "Requirements"
 
@@ -225,7 +227,7 @@ graph LR
     classDef out fill:#9C27B0,color:#fff
 ```
 
-Export your model to 20 deployment formats:
+Export your model to 21 deployment formats:
 
 1. Navigate to the **Export** tab
 2. Select target format
@@ -240,7 +242,7 @@ Connect [Slack alerts](../integrations/slack.md) to receive a message when an ex
 
 ### Supported Formats
 
-The Platform supports export to [20 deployment formats](../../modes/export.md#export-formats): ONNX, TorchScript, OpenVINO, TensorRT, CoreML, TF SavedModel, TF GraphDef, LiteRT, TF Edge TPU, PaddlePaddle, NCNN, MNN, RKNN, Qualcomm (QNN), IMX500, Axelera, ExecuTorch, DeepX, Hailo, and Huawei Ascend.
+The Platform supports export to [21 deployment formats](../../modes/export.md#export-formats): ONNX, TorchScript, OpenVINO, TensorRT, CoreML, TF SavedModel, TF GraphDef, LiteRT, TF Edge TPU, PaddlePaddle, NCNN, MNN, RKNN, Qualcomm (QNN), IMX500, Axelera, ExecuTorch, DeepX, Hailo, Huawei Ascend, and Apple Core AI.
 
 ### Format Selection Guide
 
@@ -259,7 +261,7 @@ The Platform supports export to [20 deployment formats](../../modes/export.md#ex
 
 ### NVIDIA Jetson TensorRT Targets
 
-Ultralytics Platform offers the following Jetson target selections for TensorRT `.engine` exports. As of July 2026, Jetson TensorRT exports are built with JetPack 7.2 / L4T r39.2, Python 3.12.3, NVIDIA PyTorch 2.12.0a0 (26.04 build), CUDA 13.2, and TensorRT 10.16.1.11.
+Ultralytics Platform offers the following Jetson target selections for TensorRT `.engine` exports. The July 2026 validation measurements below used JetPack 7.2 / L4T r39.2, Python 3.12.3, NVIDIA PyTorch 2.12.0a0 (26.04 build), CUDA 13.2, and TensorRT 10.16.1.11. They describe that tested environment; verify the current worker and deployment-device runtimes before reusing an exported engine.
 
 | Target selection           | API `gpuType`          | Memory | GPU architecture   | Python | CUDA | TensorRT   | Measured YOLO26n FP16 export | Physical build/load validation                |
 | -------------------------- | ---------------------- | -----: | ------------------ | ------ | ---- | ---------- | ---------------------------: | --------------------------------------------- |
@@ -276,7 +278,7 @@ The timings are single observed end-to-end production routing tests from July 20
 
 !!! warning "Match the TensorRT engine build environment"
 
-    Downloaded engines are tied to their build platform, GPU family, TensorRT version, and a compatible CUDA runtime. For Jetson targets, the software versions are shown in the table above. Validate each engine and its memory fit on the deployment device, and perform INT8 calibration there for best results. If the environments do not match, export the engine locally instead. See the [NVIDIA Jetson guide](../../guides/nvidia-jetson.md) and [TensorRT integration guide](../../integrations/tensorrt.md) for local deployment details.
+    Downloaded engines are tied to their build platform, GPU family, TensorRT version, and a compatible CUDA runtime. The table above records the measured deployment environment, which can differ from newer `latest-nvidia-arm64` Docker images. Check the actual target runtime before reusing an engine. Validate each engine and its memory fit on the deployment device, and perform INT8 calibration there for best results. If the environments do not match, export the engine locally instead. See the [NVIDIA Jetson guide](../../guides/nvidia-jetson.md) and [TensorRT integration guide](../../integrations/tensorrt.md) for local deployment details.
 
 ### RKNN Chip Support
 
@@ -337,6 +339,16 @@ Some export formats have architecture or task restrictions:
     - CoreML exports with batch sizes greater than `1` use `dynamic=true`.
     - Unsupported format/model combinations are disabled in the export dialog before you launch.
     - Only one export per format can run at a time for a given model.
+
+## Move Models Between Projects
+
+Move models you can edit into another project of the same workspace without copying them:
+
+1. Open the source project and select one or more models in the model list
+2. Right-click and choose **Cut** (`Cmd/Ctrl+X`)
+3. Open the destination project, right-click the model list, and choose **Paste** (`Cmd/Ctrl+V`), or drag the selected models onto the destination project in the sidebar
+
+Moved models keep their weights, metrics, exports, and deployments and take the destination project's URL. A model whose URL name is already used in the destination is renamed on arrival, models that are still training cannot be moved, and `Esc` cancels a pending cut. To copy a model you do not own into one of your projects, use **Clone Model**.
 
 ## Clone Model
 
@@ -415,7 +427,7 @@ Remove a model you no longer need:
 - [**Inference**](../deploy/inference.md): Test models in the browser with the Predict tab
 - [**Endpoints**](../deploy/endpoints.md): Deploy models to production with dedicated endpoints
 - [**Cloud Training**](cloud-training.md): Configure and run training jobs on cloud GPUs
-- [**Export Formats**](../../modes/export.md): Full guide to all 20 export formats
+- [**Export Formats**](../../modes/export.md): Full guide to all 21 export formats
 
 ## FAQ
 
@@ -440,9 +452,9 @@ Yes, download your model weights from the model page:
 
 ### How do I compare models across projects?
 
-Currently, model comparison is within projects. To compare across projects:
+Model comparison works within a project. To compare across projects:
 
-1. Clone models to a single project, or
+1. [Move](#move-models-between-projects) or [clone](#clone-model) the models into a single project, or
 2. Export metrics and compare externally
 
 ### What's the maximum model size?

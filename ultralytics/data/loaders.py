@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import glob
 import math
 import os
 import time
 import urllib
 from dataclasses import dataclass
+from functools import partial
 from io import BytesIO
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
 from typing import Any
@@ -19,9 +22,9 @@ import torch
 from PIL import Image, ImageOps
 
 from ultralytics.data.utils import FORMATS_HELP_MSG, IMG_FORMATS, VID_FORMATS
-from ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, ops
+from ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, NUM_THREADS, ops
 from ultralytics.utils.checks import check_requirements
-from ultralytics.utils.patches import imread
+from ultralytics.utils.patches import PIL_FALLBACK_SUFFIXES, imread
 
 
 @dataclass
@@ -354,10 +357,16 @@ class LoadImagesAndVideos:
             vid_stride (int): Video frame-rate stride.
             channels (int): Number of image channels (1 for grayscale, 3 for color).
         """
+        source_path = path
         parent = None
         if isinstance(path, str) and Path(path).suffix in {".txt", ".csv"}:  # txt/csv file with source paths
             parent, content = Path(path).parent, Path(path).read_text()
-            path = content.splitlines() if Path(path).suffix == ".txt" else content.split(",")  # list of sources
+            if Path(path).suffix == ".txt":
+                path = content.splitlines()
+            else:
+                rows = list(csv.reader(content.splitlines()))
+                rows = rows[1:] if rows[:1] == [["source"]] else rows  # optional header row
+                path = [p for row in rows for p in row]
             path = [p.strip() for p in path]
         files = []
         for p in sorted(path) if isinstance(path, (list, tuple)) else [path]:
@@ -396,7 +405,12 @@ class LoadImagesAndVideos:
         else:
             self.cap = None
         if self.nf == 0:
-            raise FileNotFoundError(f"No images or videos found in {p}. {FORMATS_HELP_MSG}")
+            raise FileNotFoundError(f"No images or videos found in {source_path}. {FORMATS_HELP_MSG}")
+
+    def close(self):
+        """Release the current video capture object, e.g. when inference stops before the video ends."""
+        if self.cap:
+            self.cap.release()
 
     def __iter__(self):
         """Iterate through image/video files, yielding source paths, images, and metadata."""
@@ -434,31 +448,49 @@ class LoadImagesAndVideos:
                         paths.append(path)
                         imgs.append(im0)
                         info.append(f"video {self.count + 1}/{self.nf} (frame {self.frame}/{self.frames}) {path}: ")
-                        if self.frame == self.frames:  # end of video
+                        if self.frame == self.frames:  # end of video, flush so a batch never spans two videos
                             self.count += 1
                             self.cap.release()
+                            break
                 else:
                     # Move to the next file if the current video ended or failed to open
                     self.count += 1
                     if self.cap:
                         self.cap.release()
-                    if self.count < self.nf:
-                        self._new_video(self.files[self.count])
+                    if imgs:  # flush so a batch never spans two videos, the next video opens on the next call
+                        break
             else:
                 # Handle image files
                 self.mode = "image"
+                if self.bs >= 8 and NUM_THREADS > 1 and (n := min(self.bs - len(imgs), self.ni - self.count)) >= 8:
+                    image_paths = self.files[self.count : self.count + n]
+                    # Keep fallback formats serial: their lazy PIL plugin registration is not thread-safe.
+                    if not any(Path(x).suffix.lower() in PIL_FALLBACK_SUFFIXES for x in image_paths):
+                        with ThreadPool(min(n, NUM_THREADS)) as pool:
+                            decoded = pool.map(partial(imread, flags=self.cv2_flag), image_paths)
+                        for i, (image_path, im0) in enumerate(zip(image_paths, decoded)):
+                            self._append_image(paths, imgs, info, image_path, im0, self.count + i + 1)
+                        self.count += n  # move to the next batch of files
+                        if self.count >= self.ni and imgs:  # flush images before starting videos
+                            break
+                        continue
+
                 im0 = imread(path, flags=self.cv2_flag)  # BGR
-                if im0 is None:
-                    LOGGER.warning(f"Image Read Error {path}")
-                else:
-                    paths.append(path)
-                    imgs.append(im0)
-                    info.append(f"image {self.count + 1}/{self.nf} {path}: ")
+                self._append_image(paths, imgs, info, path, im0, self.count + 1)
                 self.count += 1  # move to the next file
                 if self.count >= self.ni and imgs:  # end of image list, flush only a non-empty batch
                     break
 
         return paths, imgs, info
+
+    def _append_image(self, paths: list, imgs: list, info: list, path: str, im0: np.ndarray | None, idx: int):
+        """Append a decoded image to the batch lists, or warn and skip it if decoding failed."""
+        if im0 is None:
+            LOGGER.warning(f"Image Read Error {path}")
+        else:
+            paths.append(path)
+            imgs.append(im0)
+            info.append(f"image {idx}/{self.nf} {path}: ")
 
     def _new_video(self, path: str):
         """Create a new video capture object for the given path and initialize video-related attributes."""
@@ -531,25 +563,30 @@ class LoadPilAndNumpy:
         pil = isinstance(im, Image.Image)
         if pil:
             flag = "L" if channels == 1 else "RGB"
-            im = np.asarray(im.convert(flag))
-            im = im[..., None] if flag == "L" else im[..., ::-1]
+            im = np.asarray(im if im.mode == flag else im.convert(flag))  # convert() copies even when mode matches
+            if flag == "L":
+                im = im[..., None]
         im = np.atleast_3d(im)
         # Both routes validate here: a zero dimension divides by zero in LetterBox, and a batched array reads
-        # shape[2] as a channel count it is not. Raised rather than asserted so `python -O` keeps the check.
+        # shape[2] as a channel count it is not. Raised rather than asserted so `python -O` keeps the check, and
+        # ahead of the cvtColor calls, which assert on an empty input instead of raising this message.
         if im.ndim != 3 or not all(im.shape):
             raise ValueError(f"Expected a single (H, W, C) image, but got array of shape {im.shape}")
         if pil:
-            return np.ascontiguousarray(im)
+            return im if channels == 1 else cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
         c = im.shape[2]
         if c == channels:
             return im
         if c == 2:  # gray + alpha
             im, c = im[..., :1], 1
+        u8 = im.dtype == np.uint8  # cvtColor rejects dtypes NumPy indexing accepts, float64 among them
         if c == 1:
+            if u8 and channels == 3:
+                return cv2.cvtColor(im[..., 0], cv2.COLOR_GRAY2BGR)
             return np.repeat(im, channels, axis=2)
         if channels == 1:
             return cv2.cvtColor(im, cv2.COLOR_BGRA2GRAY if c == 4 else cv2.COLOR_BGR2GRAY)[..., None]
-        return np.ascontiguousarray(im[..., :3])
+        return cv2.cvtColor(im, cv2.COLOR_BGRA2BGR) if u8 and c == 4 else np.ascontiguousarray(im[..., :3])
 
     def __len__(self) -> int:
         """Return the length of the 'im0' attribute, representing the number of loaded images."""
