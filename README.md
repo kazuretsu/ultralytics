@@ -39,6 +39,8 @@ Every option uses the same YOLO26 nano neck and NMS-free detection head. Only th
 
 The two backbone configs live in `ultralytics/cfg/models/26/` as `yolo26-mobilenetv4convsmall.yaml` and `yolo26-efficientnetv2b0.yaml`. The file name carries the **backbone variant**; the **head size** comes from the scale letter you add when loading, so `yolo26n-efficientnetv2b0.yaml` means "YOLO26 nano head on EfficientNetV2-B0". That exact name is what shows up in commands, run folders and model summaries, and the same file also builds `yolo26s-efficientnetv2b0.yaml` without a second copy.
 
+**Larger EfficientNetV2:** `yolo26-efficientnetv2s.yaml` uses EfficientNetV2-S (`tf_efficientnetv2_s`, ImageNet-21k weights fine-tuned on ImageNet-1k) for when B0's features are the limit. Load it as `yolo26n-efficientnetv2s.yaml`. It is 21.47M parameters and 50.4 GFLOPs, about 3× the B0 model (costs in [section 6](#6-nano-or-small)). For a size-matched MobileNetV4 comparison, pair it with `mobilenetv4_conv_medium` ([section 8](#another-timm-model-yaml-only)), not Conv-Small.
+
 **A note for comparisons:** `yolo26n.pt` starts with its neck and head already trained on COCO; the backbone configs do not. For a comparison where architecture is the only difference, also train `yolo26n.yaml` — the same stock model with no COCO weights.
 
 ### Check that a checkpoint really is YOLO26
@@ -65,6 +67,7 @@ print("started from:", m.ckpt.get("train_args", {}).get("model"))
 | `ultralytics/nn/tasks.py`                                    | Imports the backbones and teaches `parse_model()` to handle a layer that returns _several_ feature maps |
 | `ultralytics/cfg/models/26/yolo26-mobilenetv4convsmall.yaml` | YOLO26 + MobileNetV4-Conv-Small config                                                                  |
 | `ultralytics/cfg/models/26/yolo26-efficientnetv2b0.yaml`     | YOLO26 + EfficientNetV2-B0 config                                                                       |
+| `ultralytics/cfg/models/26/yolo26-efficientnetv2s.yaml`      | YOLO26 + EfficientNetV2-S config (larger backbone)                                                      |
 | `ultralytics/utils/plotting.py`                              | Normalizes box corner order in `Annotator.box_label` (see [Other fork changes](#11-other-fork-changes)) |
 | `pyproject.toml`                                             | `backbones` optional extra that pulls in `timm`                                                         |
 
@@ -148,6 +151,7 @@ common = dict(
 )
 for model in ["yolo26n.pt", "yolo26n-mobilenetv4convsmall.yaml", "yolo26n-efficientnetv2b0.yaml"]:
     YOLO(model).train(name=model.rsplit(".", 1)[0], **common)
+# Add "yolo26n-efficientnetv2s.yaml" to the list to also train the larger EfficientNetV2-S backbone.
 ```
 
 Things to know on Kaggle:
@@ -172,12 +176,17 @@ Nano. Measured in this fork, `nms=False`, FP32 LiteRT export. Latency is the med
 | `yolo26s-mobilenetv4convsmall` | 8.20M  | 15.6        | 31.0 MB        | 43.5 ms          | 12.0 ms          |
 | `yolo26n-efficientnetv2b0`     | 7.18M  | 15.1        | 28.2 MB        | 51.2 ms          | 13.9 ms          |
 | `yolo26s-efficientnetv2b0`     | 11.32M | 23.3        | 43.4 MB        | 70.2 ms          | 20.0 ms          |
+| `yolo26n-efficientnetv2s`      | 21.47M | 50.4        | 85.2 MB        | 138.4 ms         | 37.8 ms          |
+| `yolo26s-efficientnetv2s`      | 25.65M | 58.6        | 100.5 MB       | 155.2 ms         | 43.0 ms          |
 
 Small costs, relative to nano:
 
 - **Stock:** 3.9× the parameters, about 3× the latency.
 - **MobileNetV4:** 2.2× the parameters, about 2× the latency.
 - **EfficientNetV2-B0:** 1.6× the parameters, 1.4× the latency. The gap is smaller because the backbone, which the scale letter does not change, is most of this model.
+- **EfficientNetV2-S:** 1.2× the parameters, 1.1× the latency, because the backbone dominates even more.
+
+A bigger backbone costs more than a bigger head: `yolo26n-efficientnetv2s` is 2.7× the latency and 3× the file size of `yolo26n-efficientnetv2b0`, while `yolo26s-efficientnetv2b0` is 1.4×.
 
 That is a large price on every option, and holding the head at nano means the backbone is the only variable between the three models. Move to `s` only if nano's accuracy is clearly short on your data — the same YAML files build it.
 
@@ -331,7 +340,7 @@ This step is easy to skip and the failure is confusing. `parse_model()` turns th
 
 ### Pre-cache the pretrained weights
 
-`pretrained=True` downloads the backbone from the Hugging Face Hub on first use (`mobilenetv4_conv_small.e2400_r224_in1k`, `tf_efficientnetv2_b0.in1k`). On a machine with no outbound access, warm the cache somewhere with a network, copy it across, and pin its location:
+`pretrained=True` downloads the backbone from the Hugging Face Hub on first use (`mobilenetv4_conv_small.e2400_r224_in1k`, `tf_efficientnetv2_b0.in1k`, `tf_efficientnetv2_s.in21k_ft_in1k`). On a machine with no outbound access, warm the cache somewhere with a network, copy it across, and pin its location:
 
 ```bash
 export HF_HOME=/opt/model-cache/huggingface  # where timm weights are cached
@@ -345,6 +354,7 @@ from ultralytics.nn.modules import TimmBackbone
 
 TimmBackbone("mobilenetv4_conv_small", pretrained=True)
 TimmBackbone("tf_efficientnetv2_b0", pretrained=True)
+TimmBackbone("tf_efficientnetv2_s", pretrained=True)
 ```
 
 If no pretrained weights are available at all, set the second argument in layer 0 to `False` and expect to train considerably longer.
