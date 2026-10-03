@@ -43,6 +43,8 @@ The two backbone configs live in `ultralytics/cfg/models/26/` as `yolo26-mobilen
 
 **Larger MobileNetV4:** `yolo26-mobilenetv4convmedium.yaml` uses MobileNetV4-Conv-Medium (`mobilenetv4_conv_medium`) for when Conv-Small's features are the limit. Load it as `yolo26n-mobilenetv4convmedium.yaml`. It is 9.61M parameters and 17.9 GFLOPs, between EfficientNetV2-B0 (7.18M, 15.1) and EfficientNetV2-S (21.47M, 50.4). Like Conv-Small it is all convolutions, with no attention blocks in the backbone. Its LiteRT latency is not in [section 6](#6-nano-or-small) yet.
 
+**Hybrid MobileNetV4:** `yolo26-mobilenetv4hybridmedium.yaml` (`mobilenetv4_hybrid_medium`, 10.97M parameters, 19.8 GFLOPs) and `yolo26-mobilenetv4hybridlarge.yaml` (`mobilenetv4_hybrid_large`, the largest MobileNetV4) add multi-query attention blocks to the later stages. Load them as `yolo26n-mobilenetv4hybridmedium.yaml` and `yolo26n-mobilenetv4hybridlarge.yaml`. Hybrid-Large is bigger than EfficientNetV2-S. Attention usually costs more on phone CPUs and loses more accuracy under INT8 than convolutions do, so check the quantized LiteRT export before choosing a hybrid. Neither has LiteRT latency in [section 6](#6-nano-or-small) yet.
+
 **A note for comparisons:** `yolo26n.pt` starts with its neck and head already trained on COCO; the backbone configs do not. For a comparison where architecture is the only difference, also train `yolo26n.yaml` — the same stock model with no COCO weights.
 
 ### Check that a checkpoint really is YOLO26
@@ -62,17 +64,19 @@ print("started from:", m.ckpt.get("train_args", {}).get("model"))
 
 ## 2. What this fork changes
 
-| File                                                          | Change                                                                                                  |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `ultralytics/nn/modules/block.py`                             | `MultiScaleBackbone` base class, `TimmBackbone` and `FeatureSelect`                                     |
-| `ultralytics/nn/modules/__init__.py`                          | Re-exports the new modules from the package                                                             |
-| `ultralytics/nn/tasks.py`                                     | Imports the backbones and teaches `parse_model()` to handle a layer that returns _several_ feature maps |
-| `ultralytics/cfg/models/26/yolo26-mobilenetv4convsmall.yaml`  | YOLO26 + MobileNetV4-Conv-Small config                                                                  |
-| `ultralytics/cfg/models/26/yolo26-efficientnetv2b0.yaml`      | YOLO26 + EfficientNetV2-B0 config                                                                       |
-| `ultralytics/cfg/models/26/yolo26-efficientnetv2s.yaml`       | YOLO26 + EfficientNetV2-S config (larger backbone)                                                      |
-| `ultralytics/cfg/models/26/yolo26-mobilenetv4convmedium.yaml` | YOLO26 + MobileNetV4-Conv-Medium config (larger backbone)                                               |
-| `ultralytics/utils/plotting.py`                               | Normalizes box corner order in `Annotator.box_label` (see [Other fork changes](#11-other-fork-changes)) |
-| `pyproject.toml`                                              | `backbones` optional extra that pulls in `timm`                                                         |
+| File                                                            | Change                                                                                                  |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `ultralytics/nn/modules/block.py`                               | `MultiScaleBackbone` base class, `TimmBackbone` and `FeatureSelect`                                     |
+| `ultralytics/nn/modules/__init__.py`                            | Re-exports the new modules from the package                                                             |
+| `ultralytics/nn/tasks.py`                                       | Imports the backbones and teaches `parse_model()` to handle a layer that returns _several_ feature maps |
+| `ultralytics/cfg/models/26/yolo26-mobilenetv4convsmall.yaml`    | YOLO26 + MobileNetV4-Conv-Small config                                                                  |
+| `ultralytics/cfg/models/26/yolo26-efficientnetv2b0.yaml`        | YOLO26 + EfficientNetV2-B0 config                                                                       |
+| `ultralytics/cfg/models/26/yolo26-efficientnetv2s.yaml`         | YOLO26 + EfficientNetV2-S config (larger backbone)                                                      |
+| `ultralytics/cfg/models/26/yolo26-mobilenetv4convmedium.yaml`   | YOLO26 + MobileNetV4-Conv-Medium config (larger backbone)                                               |
+| `ultralytics/cfg/models/26/yolo26-mobilenetv4hybridmedium.yaml` | YOLO26 + MobileNetV4-Hybrid-Medium config (adds attention)                                              |
+| `ultralytics/cfg/models/26/yolo26-mobilenetv4hybridlarge.yaml`  | YOLO26 + MobileNetV4-Hybrid-Large config (adds attention, largest)                                      |
+| `ultralytics/utils/plotting.py`                                 | Normalizes box corner order in `Annotator.box_label` (see [Other fork changes](#11-other-fork-changes)) |
+| `pyproject.toml`                                                | `backbones` optional extra that pulls in `timm`                                                         |
 
 Nothing else in the library was modified, so upstream releases can still be merged in.
 
@@ -154,7 +158,8 @@ common = dict(
 )
 for model in ["yolo26n.pt", "yolo26n-mobilenetv4convsmall.yaml", "yolo26n-efficientnetv2b0.yaml"]:
     YOLO(model).train(name=model.rsplit(".", 1)[0], **common)
-# Add "yolo26n-efficientnetv2s.yaml" or "yolo26n-mobilenetv4convmedium.yaml" to the list to also train a larger backbone.
+# Add "yolo26n-efficientnetv2s.yaml", "yolo26n-mobilenetv4convmedium.yaml", "yolo26n-mobilenetv4hybridmedium.yaml"
+# or "yolo26n-mobilenetv4hybridlarge.yaml" to the list to also train a larger backbone.
 ```
 
 Things to know on Kaggle:
@@ -273,7 +278,7 @@ Because the branch tests `issubclass(m, MultiScaleBackbone)` rather than a hard-
 Any timm model that supports `features_only=True` works through `TimmBackbone` without code changes. Copy one of the two configs, change the model name in layer 0, and name the file after it — the timm name without the `tf_` prefix and underscores:
 
 ```yaml
-- [-1, 1, TimmBackbone, [mobilenetv4_hybrid_medium, True]] # [timm model, pretrained] -> yolo26-mobilenetv4hybridmedium.yaml
+- [-1, 1, TimmBackbone, [mobilenetv4_conv_large, True]] # [timm model, pretrained] -> yolo26-mobilenetv4convlarge.yaml
 ```
 
 Measured candidates from the same two families (`features_only`, 3 scales, ImageNet weights):
@@ -343,7 +348,7 @@ This step is easy to skip and the failure is confusing. `parse_model()` turns th
 
 ### Pre-cache the pretrained weights
 
-`pretrained=True` downloads the backbone from the Hugging Face Hub on first use (`mobilenetv4_conv_small.e2400_r224_in1k`, `tf_efficientnetv2_b0.in1k`, `tf_efficientnetv2_s.in21k_ft_in1k`, `mobilenetv4_conv_medium.e500_r256_in1k`). On a machine with no outbound access, warm the cache somewhere with a network, copy it across, and pin its location:
+`pretrained=True` downloads the backbone from the Hugging Face Hub on first use (`mobilenetv4_conv_small.e2400_r224_in1k`, `tf_efficientnetv2_b0.in1k`, `tf_efficientnetv2_s.in21k_ft_in1k`, `mobilenetv4_conv_medium.e500_r256_in1k`, `mobilenetv4_hybrid_medium.e200_r256_in12k_ft_in1k`, `mobilenetv4_hybrid_large.ix_e600_r384_in1k`). On a machine with no outbound access, warm the cache somewhere with a network, copy it across, and pin its location:
 
 ```bash
 export HF_HOME=/opt/model-cache/huggingface  # where timm weights are cached
@@ -359,6 +364,8 @@ TimmBackbone("mobilenetv4_conv_small", pretrained=True)
 TimmBackbone("tf_efficientnetv2_b0", pretrained=True)
 TimmBackbone("tf_efficientnetv2_s", pretrained=True)
 TimmBackbone("mobilenetv4_conv_medium", pretrained=True)
+TimmBackbone("mobilenetv4_hybrid_medium", pretrained=True)
+TimmBackbone("mobilenetv4_hybrid_large", pretrained=True)
 ```
 
 If no pretrained weights are available at all, set the second argument in layer 0 to `False` and expect to train considerably longer.
